@@ -3257,6 +3257,608 @@ git commit -m "feat: chat input and streaming bubble wired to llm pipeline"
 
 ---
 
-> **Batch 4 结束。** 已交付 Task 0-11(共 12 个),覆盖完整 MVP 主体功能:对话端到端跑通 + 拖动 + 右键菜单 + idle 动画 + 鼠标跟随。
->
-> **Batch 5(最后一批)将包含:** Task 12 ExpressionController(关键词→表情)/ Task 13 SettingsPanel UI / Task 14 端到端验收 + electron-builder 打包。
+---
+
+## Task 12: ExpressionController(关键词 → 表情)
+
+**Files:**
+- Create: `src/renderer/scene/ExpressionController.ts`
+- Modify: `src/renderer/App.tsx`
+- Create: `tests/expression-mapper.test.ts`
+
+> 思路:`detectExpression(text)` 是纯函数,扫描关键词返回表情名;`ExpressionController` 在 `chat:done` 时被通知,触发 VRM blendshape,3 秒衰减回 neutral。
+
+- [ ] **Step 1: 写关键词映射测试(失败)**
+
+`tests/expression-mapper.test.ts`:
+
+```ts
+import { describe, it, expect } from 'vitest'
+import { detectExpression } from '../src/renderer/scene/ExpressionController'
+
+describe('detectExpression', () => {
+  it('returns happy for laugh keywords', () => {
+    expect(detectExpression('哈哈,好啊')).toBe('happy')
+    expect(detectExpression('真是太开心了')).toBe('happy')
+    expect(detectExpression('lol nice 😄')).toBe('happy')
+  })
+
+  it('returns surprised for question/exclaim cues', () => {
+    expect(detectExpression('啊?是这样吗?')).toBe('surprised')
+    expect(detectExpression('What?!')).toBe('surprised')
+  })
+
+  it('returns thinking for hedge cues', () => {
+    expect(detectExpression('嗯... 让我想想')).toBe('thinking')
+    expect(detectExpression('我思考一下')).toBe('thinking')
+  })
+
+  it('returns sad for sorry/sad cues', () => {
+    expect(detectExpression('抱歉,我不知道')).toBe('sad')
+    expect(detectExpression('好难过 😢')).toBe('sad')
+  })
+
+  it('falls back to neutral', () => {
+    expect(detectExpression('今天天气不错')).toBe('neutral')
+    expect(detectExpression('')).toBe('neutral')
+  })
+
+  it('happy beats thinking when both keywords appear', () => {
+    expect(detectExpression('让我想想... 哈哈想到了')).toBe('happy')
+  })
+})
+```
+
+- [ ] **Step 2: 跑测试,确认失败**
+
+```bash
+npm test -- expression-mapper
+```
+
+Expected: FAIL。
+
+- [ ] **Step 3: 实现 ExpressionController**
+
+`src/renderer/scene/ExpressionController.ts`:
+
+```ts
+import type { VRM } from '@pixiv/three-vrm'
+
+export type Expression = 'happy' | 'surprised' | 'thinking' | 'sad' | 'neutral'
+
+const RULES: Array<{ kind: Expression; needles: string[] }> = [
+  { kind: 'happy', needles: ['哈哈', '笑', '开心', '高兴', '😄', '😆', 'lol', 'haha'] },
+  { kind: 'surprised', needles: ['?!', '!?', '?!', '啊?', 'what?', 'wow', '哇'] },
+  { kind: 'sad', needles: ['抱歉', '难过', '😢', '😭', 'sorry', '对不起'] },
+  { kind: 'thinking', needles: ['嗯...', '让我想', '思考', '想想', 'hmm', 'let me think'] },
+]
+
+export function detectExpression(text: string): Expression {
+  if (!text) return 'neutral'
+  const lower = text.toLowerCase()
+  for (const r of RULES) {
+    if (r.needles.some((n) => lower.includes(n.toLowerCase()))) return r.kind
+  }
+  return 'neutral'
+}
+
+const VRM_NAME_MAP: Record<Expression, string | null> = {
+  happy: 'happy',
+  surprised: 'surprised',
+  sad: 'sad',
+  thinking: 'neutral', // 多数 VRM 没有 thinking,用轻微 sad 或 neutral
+  neutral: 'neutral',
+}
+
+export class ExpressionController {
+  private current: Expression = 'neutral'
+  private weight = 0
+  private targetWeight = 0
+  private holdLeft = 0
+  private readonly hold = 3 // seconds before decay
+
+  constructor(private readonly vrm: VRM) {}
+
+  trigger(text: string): void {
+    const e = detectExpression(text)
+    if (e === 'neutral') return
+    this.current = e
+    this.targetWeight = 1
+    this.weight = 1
+    this.holdLeft = this.hold
+    this.applyWeight()
+  }
+
+  update(dt: number): void {
+    if (this.holdLeft > 0) {
+      this.holdLeft -= dt
+      return
+    }
+    if (this.weight > 0) {
+      this.weight = Math.max(0, this.weight - dt) // 1s decay
+      this.applyWeight()
+      if (this.weight === 0) this.current = 'neutral'
+    }
+  }
+
+  private applyWeight(): void {
+    const mgr = this.vrm.expressionManager
+    if (!mgr) return
+    // 清零所有
+    for (const name of ['happy', 'angry', 'sad', 'surprised', 'relaxed', 'neutral']) {
+      try { mgr.setValue(name, 0) } catch { /* ignore missing */ }
+    }
+    const target = VRM_NAME_MAP[this.current]
+    if (target) {
+      try { mgr.setValue(target, this.weight) } catch { /* ignore */ }
+    }
+  }
+}
+```
+
+- [ ] **Step 4: 跑测试,确认通过**
+
+```bash
+npm test -- expression-mapper
+```
+
+Expected: PASS,6 个用例。
+
+- [ ] **Step 5: App 接线**
+
+修改 `src/renderer/App.tsx`,在 useEffect 加载块里:
+
+```tsx
+const expr = new (await import('./scene/ExpressionController')).ExpressionController(vrm)
+stage.addUpdater((dt) => idle.update(dt))
+stage.addUpdater((dt) => lookAt.update(dt))
+stage.addUpdater((dt) => expr.update(dt))
+// 暴露给外部触发
+;(window as any).__triggerExpr = (t: string) => expr.trigger(t)
+```
+
+并订阅 done 事件触发表情:
+
+```tsx
+useEffect(() => {
+  const off = window.api.chat.onDone((fullText) => {
+    ;(window as any).__triggerExpr?.(fullText)
+  })
+  return off
+}, [])
+```
+
+> 这种临时挂 window 的方式只是为了避免把 expr 引用穿入 chat hook 增加耦合;Task 13 之后可重构成 context。MVP 接受。
+
+- [ ] **Step 6: typecheck + 全测试**
+
+```bash
+npm test
+npm run typecheck
+```
+
+Expected: 全 PASS。
+
+- [ ] **Step 7: 手动验证表情触发**
+
+```bash
+npm run dev
+```
+
+输入「讲个笑话」让回复中包含「哈哈」/「笑」 → 角色短暂露出 happy 表情(VRM 嘴角上扬等),3 秒后衰减回 neutral。
+
+> 若 VRM 模型没有标准 expression(happy/sad/surprised),控制台会有 try/catch 静默忽略,不影响主流程。
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add .
+git commit -m "feat: keyword-driven expression controller"
+```
+
+---
+
+## Task 13: SettingsPanel UI
+
+**Files:**
+- Create: `src/renderer/settings/SettingsPanel.tsx`
+- Modify: `src/renderer/App.tsx`(挂菜单项 + 弹层)
+- Modify: `src/renderer/app/ContextMenu.tsx`(无变更,只是新增项)
+
+> 思路:模态弹层(MVP 不要复杂路由),展示 provider 下拉 + 三个字段 + 保存按钮。Token 字段如果"已有"就显示占位 ●●●●,不回填实际值,改写时清空原值。
+
+- [ ] **Step 1: 实现 SettingsPanel**
+
+`src/renderer/settings/SettingsPanel.tsx`:
+
+```tsx
+import { useEffect, useState } from 'react'
+import type { Settings } from '../../main/llm/types'
+
+interface Props { open: boolean; onClose: () => void }
+
+export function SettingsPanel({ open, onClose }: Props) {
+  const [settings, setSettings] = useState<Settings | null>(null)
+  const [hasA, setHasA] = useState(false)
+  const [hasO, setHasO] = useState(false)
+  const [aTok, setATok] = useState('')
+  const [oTok, setOTok] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (!open) return
+    window.api.settings.get().then((r) => {
+      setSettings(r.settings)
+      setHasA(r.hasAnthropic)
+      setHasO(r.hasOpenAI)
+      setATok('')
+      setOTok('')
+    })
+  }, [open])
+
+  if (!open || !settings) return null
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      await window.api.settings.set({
+        settings,
+        anthropicToken: aTok || undefined,
+        openaiToken: oTok || undefined,
+      })
+      onClose()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const upd = (patch: Partial<Settings>) => setSettings({ ...settings, ...patch })
+
+  return (
+    <div
+      data-interactive="true"
+      className="absolute inset-0 bg-black/60 flex items-center justify-center"
+    >
+      <div className="bg-neutral-900 text-white rounded-xl p-5 w-[360px] space-y-3">
+        <div className="text-lg font-semibold">设置</div>
+
+        <label className="block text-sm">
+          Provider
+          <select
+            className="mt-1 w-full bg-neutral-800 rounded px-2 py-1"
+            value={settings.provider}
+            onChange={(e) => upd({ provider: e.target.value as Settings['provider'] })}
+          >
+            <option value="anthropic">Anthropic</option>
+            <option value="openai-compatible">OpenAI-Compatible</option>
+          </select>
+        </label>
+
+        {settings.provider === 'anthropic' ? (
+          <fieldset className="space-y-2 border border-neutral-700 rounded p-2">
+            <legend className="text-xs text-neutral-400 px-1">Anthropic</legend>
+            <input
+              className="w-full bg-neutral-800 rounded px-2 py-1"
+              placeholder="Base URL (留空走官方)"
+              value={settings.anthropic.baseURL}
+              onChange={(e) => upd({ anthropic: { ...settings.anthropic, baseURL: e.target.value } })}
+            />
+            <input
+              className="w-full bg-neutral-800 rounded px-2 py-1"
+              placeholder="Model ID (e.g. claude-sonnet-4-5)"
+              value={settings.anthropic.model}
+              onChange={(e) => upd({ anthropic: { ...settings.anthropic, model: e.target.value } })}
+            />
+            <input
+              type="password"
+              className="w-full bg-neutral-800 rounded px-2 py-1"
+              placeholder={hasA ? '已设置(留空保持不变)' : 'API Token'}
+              value={aTok}
+              onChange={(e) => setATok(e.target.value)}
+            />
+          </fieldset>
+        ) : (
+          <fieldset className="space-y-2 border border-neutral-700 rounded p-2">
+            <legend className="text-xs text-neutral-400 px-1">OpenAI-Compatible</legend>
+            <input
+              className="w-full bg-neutral-800 rounded px-2 py-1"
+              placeholder="Base URL (必填)"
+              value={settings.openai.baseURL}
+              onChange={(e) => upd({ openai: { ...settings.openai, baseURL: e.target.value } })}
+            />
+            <input
+              className="w-full bg-neutral-800 rounded px-2 py-1"
+              placeholder="Model ID (e.g. gpt-4o)"
+              value={settings.openai.model}
+              onChange={(e) => upd({ openai: { ...settings.openai, model: e.target.value } })}
+            />
+            <input
+              type="password"
+              className="w-full bg-neutral-800 rounded px-2 py-1"
+              placeholder={hasO ? '已设置(留空保持不变)' : 'API Key'}
+              value={oTok}
+              onChange={(e) => setOTok(e.target.value)}
+            />
+          </fieldset>
+        )}
+
+        <label className="block text-sm">
+          System Prompt
+          <textarea
+            className="mt-1 w-full bg-neutral-800 rounded px-2 py-1 text-sm"
+            rows={3}
+            value={settings.systemPrompt}
+            onChange={(e) => upd({ systemPrompt: e.target.value })}
+          />
+        </label>
+
+        <div className="flex justify-end gap-2 pt-2">
+          <button
+            className="px-3 py-1 bg-neutral-700 rounded"
+            onClick={onClose}
+            disabled={saving}
+          >取消</button>
+          <button
+            className="px-3 py-1 bg-blue-600 rounded"
+            onClick={save}
+            disabled={saving}
+          >{saving ? '保存中...' : '保存'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+```
+
+- [ ] **Step 2: App 接线**
+
+`src/renderer/App.tsx`,在 state 加 `settingsOpen` + 在 ContextMenu 加菜单项 + 渲染面板:
+
+```tsx
+const [settingsOpen, setSettingsOpen] = useState(false)
+// ...
+
+import { SettingsPanel } from './settings/SettingsPanel'
+
+return (
+  <div className="w-screen h-screen relative">
+    {/* canvas, ChatBubble, ChatInput 同前 */}
+    <ContextMenu items={[
+      { label: chatOpen ? 'Hide input' : 'Show input', onClick: () => setChatOpen((v) => !v) },
+      { label: 'Settings...', onClick: () => setSettingsOpen(true) },
+      { label: 'Quit', onClick: () => window.api.window.quit() },
+    ]} />
+    <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+  </div>
+)
+```
+
+- [ ] **Step 3: typecheck**
+
+```bash
+npm run typecheck
+```
+
+Expected: 无 error。
+
+- [ ] **Step 4: 手动验证设置**
+
+```bash
+npm run dev
+```
+
+Expected:
+- 右键 → Settings... → 弹设置面板
+- 切换 provider 显示对应字段;改 Base URL/Model/Token,保存关闭
+- 再次发消息,使用新配置(改 model 直接生效;改 token 也生效)
+- 重启程序,设置保留(但 token 字段显示「已设置」占位,不回显原值)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add .
+git commit -m "feat: settings panel with provider switch and credentials"
+```
+
+---
+
+## Task 14: 端到端验收 + electron-builder 打包
+
+**Files:**
+- Modify: `package.json`(electron-builder 配置)
+- Create: `electron-builder.yml`
+- Create: `resources/tray.png`(16x16 PNG,任意桌宠图标)
+- Create: `resources/icon.ico`(应用图标,256x256 ico)
+- Modify: `src/main/tray.ts`(用真图标替换空 image)
+- Create: `docs/manual-test-checklist.md`
+
+- [ ] **Step 1: 准备图标资源**
+
+放置:
+- `resources/tray.png`(16x16 / 24x24 PNG,半透明背景的小图标)
+- `resources/icon.ico`(Windows 应用图标,256x256 ico,可用 https://convertico.com 把 PNG 转 ico)
+
+> 如果暂时没准备好,可以用占位:`resources/tray.png` 一张纯色 16x16 PNG;`resources/icon.ico` 用任意 ico。
+
+更新 `.gitignore`:**移除** `resources/` 那行(图标要进 git;只 ignore VRM):
+
+```
+# 现在的 resources 段改成:
+resources/*.vrm
+```
+
+- [ ] **Step 2: 修改 tray.ts 用真图标**
+
+`src/main/tray.ts`:
+
+```ts
+import { Tray, Menu, nativeImage, app } from 'electron'
+import type { BrowserWindow } from 'electron'
+import { join } from 'path'
+import { fileURLToPath } from 'url'
+import { dirname } from 'path'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+
+export function createTray(win: BrowserWindow): Tray {
+  const iconPath = join(__dirname, '../../resources/tray.png')
+  const icon = nativeImage.createFromPath(iconPath)
+  const tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon)
+  const menu = Menu.buildFromTemplate([
+    { label: 'Show', click: () => win.show() },
+    { label: 'Hide', click: () => win.hide() },
+    { type: 'separator' },
+    { label: 'Quit', click: () => app.quit() },
+  ])
+  tray.setToolTip('Desktop_Pal')
+  tray.setContextMenu(menu)
+  return tray
+}
+```
+
+- [ ] **Step 3: electron-builder 配置**
+
+`electron-builder.yml`:
+
+```yaml
+appId: com.desktop_pal.app
+productName: Desktop_Pal
+directories:
+  output: release
+  buildResources: resources
+files:
+  - out/**/*
+  - resources/tray.png
+  - package.json
+extraResources:
+  - from: resources/tray.png
+    to: tray.png
+asar: true
+win:
+  target:
+    - nsis
+  icon: resources/icon.ico
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false
+```
+
+修改 `package.json` 加 build 字段引用 yml(可选,electron-builder 会自动识别 `electron-builder.yml`):
+
+```json
+"scripts": {
+  ...
+  "dist": "electron-vite build && electron-builder --config electron-builder.yml"
+}
+```
+
+- [ ] **Step 4: 写端到端验收清单**
+
+`docs/manual-test-checklist.md`:
+
+```markdown
+# Desktop_Pal MVP Manual Test Checklist
+
+## 前置
+- [ ] Windows 10/11
+- [ ] 设置环境变量(任一即可):
+  - `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN` + `ANTHROPIC_MODEL`
+  - 或 `OPENAI_BASE_URL` + `OPENAI_API_KEY` + `OPENAI_MODEL`
+- [ ] `resources/default.vrm` 存在(从 VRoid Hub 下载或自捏)
+- [ ] `resources/tray.png` 存在
+- [ ] `npm install` 已完成
+
+## Dev 模式
+
+```bash
+npm run dev
+```
+
+- [ ] 启动后右下角出现透明 VRM 角色窗口
+- [ ] VRM 角色面向用户
+- [ ] VRM 有轻微呼吸动作
+- [ ] 鼠标在屏幕上移动时角色头部跟随
+- [ ] 闲置 4-8 秒后身体姿态会变化(sway / hairtouch)
+- [ ] 在 VRM 上左键拖动 → 整窗移动
+- [ ] 在 VRM 上短按左键 → 底部出现输入框
+- [ ] 输入「你好」回车 → 顶部气泡流式显示回复
+- [ ] 流式时光标 ▍ 闪烁,完成后消失
+- [ ] 回复中含「哈哈」「笑」→ 触发 happy 表情 3 秒
+- [ ] 右键 → 弹菜单(Show/Hide input、Settings、Quit)
+- [ ] 点 Settings → 切换 provider、改 Base URL/Model/Token、保存
+- [ ] 重启程序后设置保留(token 字段显示「已设置」)
+- [ ] 切到 OpenAI-Compatible(填 DeepSeek 等)→ 同样能聊
+- [ ] 系统托盘有图标,右键有 Show/Hide/Quit
+- [ ] 鼠标在 VRM 周围空白区域点击 → 穿透到下方桌面/窗口
+
+## 已知 / 接受的问题
+
+- [ ] canvas 全画布命中(VRM 周围空白处也不穿透)→ 接受,后续优化
+- [ ] tray 图标在某些 Windows 版本可能模糊 → 接受,后续做高清版本
+
+## Build & 安装
+
+```bash
+npm run build
+npm run dist
+```
+
+- [ ] `release/Desktop_Pal Setup *.exe` 生成
+- [ ] 在干净的 Windows 上安装
+- [ ] 桌面 / 开始菜单出现 Desktop_Pal 图标
+- [ ] 启动 → 全部 dev 模式的功能可复现
+- [ ] 卸载后注册表干净(可选检查)
+```
+
+- [ ] **Step 5: 跑构建**
+
+```bash
+npm run build
+```
+
+Expected: `out/main/index.js`、`out/preload/index.js`、`out/renderer/index.html` 等生成,无 error。
+
+```bash
+npm run dist
+```
+
+Expected: `release/` 目录下出现 `Desktop_Pal Setup 0.1.0.exe`(或类似命名)。
+
+- [ ] **Step 6: 安装包冒烟测试**
+
+双击安装包,选默认目录安装,启动桌面快捷方式。
+
+Expected: 全部 MVP 行为复现。卸载从控制面板可正常完成。
+
+- [ ] **Step 7: 走完手测清单,逐项打勾**
+
+打开 `docs/manual-test-checklist.md`,逐项验证。任何 FAIL 项 → 排查并修(单独的 commit)。
+
+- [ ] **Step 8: 最终 commit**
+
+```bash
+git add .
+git commit -m "chore: electron-builder packaging and manual test checklist"
+```
+
+可选(若希望打 tag):
+
+```bash
+git tag v0.1.0-mvp
+```
+
+---
+
+## 计划完成
+
+到此 MVP 全部 15 个 Task 完成,产出:
+
+1. 一个可运行的 Windows 安装包,带透明置顶 3D VRM 桌宠
+2. 完整对话链路(Anthropic + OpenAI-Compatible 双 provider 切换)
+3. 拖动 / 鼠标头部跟随 / 程序化 idle 动画 / 关键词表情
+4. 加密凭据存储 + 环境变量预填
+5. 完整测试套件(provider factory / chatSession / chatService / passthrough / drag / idle / expression / framing / use-chat-stream)
+6. 手测清单 + 打包流水线
+
+后续接 spec 里的 out-of-scope:语音 / 屏幕感知 / 长期记忆 / 多角色,各自独立 spec → plan → 执行。
