@@ -13,6 +13,7 @@ app.whenReady().then(async () => {
   const preload = join(__dirname, '../preload/index.js')
   const win = createPetWindow(preload)
   registerIpc(win)
+  win.setIgnoreMouseEvents(true, { forward: true })
   createTray(win)
 
   if (process.env.ELECTRON_RENDERER_URL) {

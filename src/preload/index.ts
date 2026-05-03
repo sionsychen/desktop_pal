@@ -6,5 +6,7 @@ contextBridge.exposeInMainWorld('api', {
     quit: () => ipcRenderer.send(Channels.WindowQuit),
     moveBy: (dx: number, dy: number) =>
       ipcRenderer.send(Channels.WindowMove, { dx, dy }),
+    setPassthrough: (interactive: boolean) =>
+      ipcRenderer.send(Channels.PassthroughSet, interactive),
   },
 })

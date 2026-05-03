@@ -6,6 +6,7 @@ declare global {
       window: {
         quit: () => void
         moveBy: (dx: number, dy: number) => void
+        setPassthrough: (interactive: boolean) => void
       }
     }
   }
