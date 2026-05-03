@@ -3,18 +3,20 @@ import { startPassthroughLoop } from './app/passthrough'
 import { VrmStage } from './scene/VrmStage'
 import { attachDrag } from './app/DragController'
 import { ContextMenu } from './app/ContextMenu'
+import { useChatStream } from './chat/useChatStream'
+import { ChatInput } from './chat/ChatInput'
+import { ChatBubble } from './chat/ChatBubble'
 
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const stageRef = useRef<VrmStage | null>(null)
-  const [chatVisible, setChatVisible] = useState(false)
+  const [chatOpen, setChatOpen] = useState(false)
+  const chat = useChatStream()
 
   useEffect(() => startPassthroughLoop((i) => window.api.window.setPassthrough(i)), [])
 
   useEffect(() => {
     if (!canvasRef.current) return
     const stage = new VrmStage(canvasRef.current)
-    stageRef.current = stage
     stage.start()
     ;(async () => {
       const vrm = await stage.loadVrm('./default.vrm').catch((e) => { console.error(e); return null })
@@ -28,7 +30,7 @@ export default function App() {
     })()
     const detachDrag = attachDrag(canvasRef.current, {
       onMove: (dx, dy) => window.api.window.moveBy(dx, dy),
-      onClick: () => setChatVisible((v) => !v),
+      onClick: () => setChatOpen((v) => !v),
     })
     return () => { detachDrag(); stage.dispose() }
   }, [])
@@ -41,16 +43,20 @@ export default function App() {
         className="w-full h-full block"
         style={{ background: 'transparent' }}
       />
-      {chatVisible && (
+      <ChatBubble text={chat.text} streaming={chat.streaming} error={chat.error} />
+      {chatOpen && (
         <div
           data-interactive="true"
-          className="absolute bottom-4 left-4 right-4 bg-black/70 text-white p-2 rounded"
+          className="absolute bottom-4 left-4 right-4"
         >
-          (Task 11 will replace with ChatBubble + ChatInput)
+          <ChatInput
+            disabled={chat.streaming}
+            onSubmit={(t) => chat.send(t)}
+          />
         </div>
       )}
       <ContextMenu items={[
-        { label: chatVisible ? 'Hide chat' : 'Show chat', onClick: () => setChatVisible((v) => !v) },
+        { label: chatOpen ? 'Hide input' : 'Show input', onClick: () => setChatOpen((v) => !v) },
         { label: 'Quit', onClick: () => window.api.window.quit() },
       ]} />
     </div>
