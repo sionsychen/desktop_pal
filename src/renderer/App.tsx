@@ -10,7 +10,6 @@ import { SettingsPanel } from './settings/SettingsPanel'
 
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const [chatOpen, setChatOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const chat = useChatStream()
 
@@ -23,19 +22,25 @@ export default function App() {
     ;(async () => {
       const vrm = await stage.loadVrm('./default.vrm').catch((e) => { console.error(e); return null })
       if (!vrm) return
-      const idle = new (await import('./scene/IdleController')).IdleController(vrm)
+      const { IdleController } = await import('./scene/IdleController')
+      const idle = new IdleController(vrm)
       const lookAt = new (await import('./scene/MouseLookAt')).MouseLookAt(
         vrm, stage.camera, stage.renderer.domElement,
       )
+      // animation mixer must update BEFORE lookAt so head IK overrides idle head bone
       stage.addUpdater((dt) => idle.update(dt))
       stage.addUpdater((dt) => lookAt.update(dt))
-      const expr = new (await import('./scene/ExpressionController')).ExpressionController(vrm)
+      const { ExpressionController, detectExpression } = await import('./scene/ExpressionController')
+      const expr = new ExpressionController(vrm)
       stage.addUpdater((dt) => expr.update(dt))
-      ;(window as any).__triggerExpr = (t: string) => expr.trigger(t)
+      ;(window as any).__triggerExpr = (t: string) => {
+        expr.trigger(t)
+        idle.playReaction(IdleController.reactionFor(detectExpression(t)))
+      }
     })()
     const detachDrag = attachDrag(canvasRef.current, {
       onMove: (dx, dy) => window.api.window.moveBy(dx, dy),
-      onClick: () => setChatOpen((v) => !v),
+      onClick: () => { /* drag-to-move only; input is always visible */ },
     })
     return () => { detachDrag(); stage.dispose() }
   }, [])
@@ -56,19 +61,16 @@ export default function App() {
         style={{ background: 'transparent' }}
       />
       <ChatBubble text={chat.text} streaming={chat.streaming} error={chat.error} />
-      {chatOpen && (
-        <div
-          data-interactive="true"
-          className="absolute bottom-4 left-4 right-4"
-        >
-          <ChatInput
-            disabled={chat.streaming}
-            onSubmit={(t) => chat.send(t)}
-          />
-        </div>
-      )}
+      <div
+        data-interactive="true"
+        className="absolute bottom-2 left-2 right-2"
+      >
+        <ChatInput
+          disabled={chat.streaming}
+          onSubmit={(t) => chat.send(t)}
+        />
+      </div>
       <ContextMenu items={[
-        { label: chatOpen ? 'Hide input' : 'Show input', onClick: () => setChatOpen((v) => !v) },
         { label: 'Settings...', onClick: () => setSettingsOpen(true) },
         { label: 'Quit', onClick: () => window.api.window.quit() },
       ]} />

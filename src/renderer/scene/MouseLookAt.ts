@@ -71,7 +71,7 @@ export class MouseLookAt {
     headParent.worldToLocal(localTarget)
     const localPos = head.position
     const dir = localTarget.sub(localPos).normalize()
-    const desiredQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir)
+    const desiredQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, -1), dir)
     const clamped = clampQuaternionAngle(desiredQuat, this.maxAngle)
     head.quaternion.slerp(clamped, Math.min(1, dt * this.damping))
   }

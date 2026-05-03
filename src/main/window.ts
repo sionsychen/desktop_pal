@@ -4,8 +4,8 @@ const { BrowserWindow: BrowserWindowCtor, screen } = electron
 
 export function buildWindowOptions(preloadPath: string): BrowserWindowConstructorOptions {
   return {
-    width: 400,
-    height: 600,
+    width: 280,
+    height: 420,
     transparent: true,
     frame: false,
     alwaysOnTop: true,
@@ -28,7 +28,7 @@ export function createPetWindow(preloadPath: string): BrowserWindow {
   // 默认右下角
   const display = screen.getPrimaryDisplay()
   const { width, height } = display.workAreaSize
-  win.setPosition(width - 420, height - 620)
+  win.setPosition(width - 300, height - 440)
   return win
 }
 

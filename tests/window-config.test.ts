@@ -15,9 +15,9 @@ describe('buildWindowOptions', () => {
     expect(opts.webPreferences?.preload).toBe('/path/to/preload.js')
   })
 
-  it('uses 400x600 default size', () => {
+  it('uses 280x420 default size', () => {
     const opts = buildWindowOptions('/p')
-    expect(opts.width).toBe(400)
-    expect(opts.height).toBe(600)
+    expect(opts.width).toBe(280)
+    expect(opts.height).toBe(420)
   })
 })

@@ -59,7 +59,9 @@ export class VrmStage {
     loader.register((parser) => new VRMLoaderPlugin(parser))
     const gltf = await loader.loadAsync(url)
     const vrm = gltf.userData.vrm as VRM
-    vrm.scene.rotation.y = Math.PI
+    // VRM 1.0 默认朝 +Z(对着相机);VRM 0.x 朝 -Z 需要翻 180°
+    const meta = (vrm as unknown as { meta?: { metaVersion?: string } }).meta
+    if (meta?.metaVersion !== '1') vrm.scene.rotation.y = Math.PI
     this.scene.add(vrm.scene)
     this.vrm = vrm
     return vrm

@@ -25,3 +25,4 @@ Thumbs.db
 # VRM assets (not committed)
 resources/*.vrm
 src/renderer/public/*.vrm
+src/renderer/public/anim/*.vrma
