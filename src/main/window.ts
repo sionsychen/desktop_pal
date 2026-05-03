@@ -1,5 +1,6 @@
-import { BrowserWindow, screen } from 'electron'
-import type { BrowserWindowConstructorOptions } from 'electron'
+import electron from 'electron'
+import type { BrowserWindow, BrowserWindowConstructorOptions } from 'electron'
+const { BrowserWindow: BrowserWindowCtor, screen } = electron
 
 export function buildWindowOptions(preloadPath: string): BrowserWindowConstructorOptions {
   return {
@@ -22,7 +23,7 @@ export function buildWindowOptions(preloadPath: string): BrowserWindowConstructo
 }
 
 export function createPetWindow(preloadPath: string): BrowserWindow {
-  const win = new BrowserWindow(buildWindowOptions(preloadPath))
+  const win = new BrowserWindowCtor(buildWindowOptions(preloadPath))
   win.setAlwaysOnTop(true, 'screen-saver')
   // 默认右下角
   const display = screen.getPrimaryDisplay()

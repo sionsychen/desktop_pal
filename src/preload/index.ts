@@ -1,4 +1,6 @@
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
+import electron from 'electron'
+import type { IpcRendererEvent } from 'electron'
+const { contextBridge, ipcRenderer } = electron
 import { Channels } from '@shared/channels'
 
 contextBridge.exposeInMainWorld('api', {

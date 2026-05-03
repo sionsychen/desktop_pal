@@ -1,4 +1,5 @@
-import { app } from 'electron'
+import electron from 'electron'
+const { app } = electron
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
 import { createPetWindow } from './window'
@@ -10,7 +11,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 app.commandLine.appendSwitch('force_high_performance_gpu')
 
 app.whenReady().then(async () => {
-  const preload = join(__dirname, '../preload/index.js')
+  const preload = join(__dirname, '../preload/index.cjs')
   const win = createPetWindow(preload)
   registerIpc(win, app.getPath('userData'))
   win.setIgnoreMouseEvents(true, { forward: true })

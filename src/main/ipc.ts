@@ -1,4 +1,6 @@
-import { ipcMain, app, type BrowserWindow } from 'electron'
+import electron from 'electron'
+import type { BrowserWindow } from 'electron'
+const { ipcMain, app } = electron
 import { Channels } from '@shared/channels'
 import { moveWindowBy } from './window'
 import { ChatSession } from './llm/chatSession'

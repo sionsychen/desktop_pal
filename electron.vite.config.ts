@@ -5,6 +5,11 @@ import { resolve } from 'path'
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
+    build: {
+      rollupOptions: {
+        output: { format: 'cjs', entryFileNames: '[name].cjs' },
+      },
+    },
     resolve: {
       alias: {
         '@main': resolve('src/main'),
@@ -14,6 +19,11 @@ export default defineConfig({
   },
   preload: {
     plugins: [externalizeDepsPlugin()],
+    build: {
+      rollupOptions: {
+        output: { format: 'cjs', entryFileNames: '[name].cjs' },
+      },
+    },
     resolve: {
       alias: {
         '@shared': resolve('src/shared'),

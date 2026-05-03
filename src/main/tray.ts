@@ -1,12 +1,13 @@
-import { Tray, Menu, nativeImage, app } from 'electron'
-import type { BrowserWindow } from 'electron'
+import electron from 'electron'
+import type { BrowserWindow, Tray as TrayType } from 'electron'
+const { Tray, Menu, nativeImage, app } = electron
 import { join } from 'path'
 import { fileURLToPath } from 'url'
 import { dirname } from 'path'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
-export function createTray(win: BrowserWindow): Tray {
+export function createTray(win: BrowserWindow): TrayType {
   const iconPath = join(__dirname, '../../resources/tray.png')
   const icon = nativeImage.createFromPath(iconPath)
   const tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon)
