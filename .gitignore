@@ -1,0 +1,22 @@
+# Build outputs
+node_modules/
+dist/
+out/
+build/
+release/
+*.log
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Env / credentials
+.env
+.env.*
+*.enc
+
+# Electron / Vite caches
+.electron-vite/
+.vite/
