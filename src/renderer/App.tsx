@@ -6,10 +6,12 @@ import { ContextMenu } from './app/ContextMenu'
 import { useChatStream } from './chat/useChatStream'
 import { ChatInput } from './chat/ChatInput'
 import { ChatBubble } from './chat/ChatBubble'
+import { SettingsPanel } from './settings/SettingsPanel'
 
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [chatOpen, setChatOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const chat = useChatStream()
 
   useEffect(() => startPassthroughLoop((i) => window.api.window.setPassthrough(i)), [])
@@ -67,8 +69,10 @@ export default function App() {
       )}
       <ContextMenu items={[
         { label: chatOpen ? 'Hide input' : 'Show input', onClick: () => setChatOpen((v) => !v) },
+        { label: 'Settings...', onClick: () => setSettingsOpen(true) },
         { label: 'Quit', onClick: () => window.api.window.quit() },
       ]} />
+      <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   )
 }
