@@ -1,0 +1,21 @@
+appId: com.desktop_pal.app
+productName: Desktop_Pal
+directories:
+  output: release
+  buildResources: resources
+files:
+  - out/**/*
+  - resources/tray.png
+  - package.json
+extraResources:
+  - from: resources/tray.png
+    to: tray.png
+asar: true
+win:
+  target:
+    - nsis
+  icon: resources/icon.ico
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false

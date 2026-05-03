@@ -1,10 +1,15 @@
 import { Tray, Menu, nativeImage, app } from 'electron'
 import type { BrowserWindow } from 'electron'
+import { join } from 'path'
+import { fileURLToPath } from 'url'
+import { dirname } from 'path'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
 
 export function createTray(win: BrowserWindow): Tray {
-  // MVP: 用空透明 16x16 图标占位,后续放真图标
-  const icon = nativeImage.createEmpty()
-  const tray = new Tray(icon)
+  const iconPath = join(__dirname, '../../resources/tray.png')
+  const icon = nativeImage.createFromPath(iconPath)
+  const tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon)
   const menu = Menu.buildFromTemplate([
     { label: 'Show', click: () => win.show() },
     { label: 'Hide', click: () => win.hide() },
