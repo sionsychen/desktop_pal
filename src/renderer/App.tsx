@@ -15,8 +15,18 @@ export default function App() {
     if (!canvasRef.current) return
     const stage = new VrmStage(canvasRef.current)
     stageRef.current = stage
-    stage.loadVrm('./default.vrm').catch((e) => console.error('VRM load failed', e))
     stage.start()
+    ;(async () => {
+      const vrm = await stage.loadVrm('./default.vrm').catch((e) => {
+        console.error('VRM load failed', e)
+        return null
+      })
+      if (!vrm) return
+      const lookAt = new (await import('./scene/MouseLookAt')).MouseLookAt(
+        vrm, stage.camera, stage.renderer.domElement,
+      )
+      stage.addUpdater((dt) => lookAt.update(dt))
+    })()
     return () => stage.dispose()
   }, [])
 
