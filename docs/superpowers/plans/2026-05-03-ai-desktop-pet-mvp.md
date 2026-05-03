@@ -2419,6 +2419,844 @@ git commit -m "feat: head IK following mouse position"
 
 ---
 
-> **Batch 3 结束。** 已交付 Task 0-8(共 9 个),覆盖完整的对话后端链路(Settings/凭据/Provider/Session/Service/IPC/preload/手测),以及 Three.js 透明场景 + VRM 显示 + 头部跟随。
+---
+
+## Task 9: IdleController(状态机 + 动画混合)
+
+**Files:**
+- Create: `src/renderer/scene/IdleController.ts`
+- Modify: `src/renderer/App.tsx`
+- Create: `tests/idle-controller.test.ts`
+- Add: `src/renderer/public/anim/idle_breathe.vrma`(可选,无则用程序生成的 procedural 呼吸)
+
+> 思路:状态机轮播多个 idle 动作。MVP 简化为 **procedural 呼吸 + 程序化身体小幅摆动**,**不**依赖外部 VRMA 文件(资源准备成本高,留接口给后续)。这样不阻塞主流程。状态机本身是纯逻辑,可测。
+
+- [ ] **Step 1: 写状态机失败测试**
+
+`tests/idle-controller.test.ts`:
+
+```ts
+import { describe, it, expect, vi } from 'vitest'
+import { IdleStateMachine, type IdleState } from '../src/renderer/scene/IdleController'
+
+describe('IdleStateMachine', () => {
+  it('starts in breathe state', () => {
+    const fsm = new IdleStateMachine(['breathe', 'sway', 'hairtouch'])
+    expect(fsm.current).toBe('breathe')
+  })
+
+  it('switches to a different state when timer elapses', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.99) // pick last
+    const fsm = new IdleStateMachine(['breathe', 'sway', 'hairtouch'], { minSec: 1, maxSec: 1 })
+    fsm.update(2) // exceed
+    expect(fsm.current).not.toBe('breathe')
+    vi.restoreAllMocks()
+  })
+
+  it('never picks the same state twice in a row when alternatives exist', () => {
+    const fsm = new IdleStateMachine(['breathe', 'sway'], { minSec: 0.1, maxSec: 0.1 })
+    const seen: IdleState[] = [fsm.current]
+    for (let i = 0; i < 5; i++) {
+      fsm.update(1)
+      seen.push(fsm.current)
+    }
+    for (let i = 1; i < seen.length; i++) {
+      expect(seen[i]).not.toBe(seen[i - 1])
+    }
+  })
+
+  it('with single state never switches', () => {
+    const fsm = new IdleStateMachine(['breathe'], { minSec: 0.1, maxSec: 0.1 })
+    fsm.update(10)
+    expect(fsm.current).toBe('breathe')
+  })
+})
+```
+
+- [ ] **Step 2: 跑测试,确认失败**
+
+```bash
+npm test -- idle-controller
+```
+
+Expected: FAIL。
+
+- [ ] **Step 3: 实现 IdleController**
+
+`src/renderer/scene/IdleController.ts`:
+
+```ts
+import * as THREE from 'three'
+import type { VRM } from '@pixiv/three-vrm'
+
+export type IdleState = 'breathe' | 'sway' | 'hairtouch' | 'lookaround'
+
+export interface IdleOptions {
+  minSec?: number
+  maxSec?: number
+}
+
+export class IdleStateMachine {
+  current: IdleState
+  private timer = 0
+  private nextSwitch = 0
+  private readonly opts: Required<IdleOptions>
+
+  constructor(public readonly states: IdleState[], opts: IdleOptions = {}) {
+    if (states.length === 0) throw new Error('IdleStateMachine needs at least one state')
+    this.current = states[0]
+    this.opts = { minSec: opts.minSec ?? 4, maxSec: opts.maxSec ?? 8 }
+    this.scheduleNext()
+  }
+
+  private scheduleNext(): void {
+    this.nextSwitch = this.opts.minSec + Math.random() * (this.opts.maxSec - this.opts.minSec)
+    this.timer = 0
+  }
+
+  update(dt: number): void {
+    this.timer += dt
+    if (this.timer < this.nextSwitch) return
+    if (this.states.length === 1) {
+      this.scheduleNext()
+      return
+    }
+    const others = this.states.filter((s) => s !== this.current)
+    this.current = others[Math.floor(Math.random() * others.length)]
+    this.scheduleNext()
+  }
+}
+
+export class IdleController {
+  private fsm = new IdleStateMachine(['breathe', 'sway', 'hairtouch'])
+  private elapsed = 0
+
+  constructor(private readonly vrm: VRM) {}
+
+  update(dt: number): void {
+    this.elapsed += dt
+    this.fsm.update(dt)
+
+    // procedural 呼吸:胸腔上下浮动
+    const chest = this.vrm.humanoid.getNormalizedBoneNode('chest')
+                ?? this.vrm.humanoid.getNormalizedBoneNode('upperChest')
+                ?? this.vrm.humanoid.getNormalizedBoneNode('spine')
+    if (chest) {
+      const breathe = Math.sin(this.elapsed * 1.6) * 0.015
+      chest.position.y = breathe
+    }
+
+    // 状态相关的小动作
+    const spine = this.vrm.humanoid.getNormalizedBoneNode('spine')
+    if (spine) {
+      switch (this.fsm.current) {
+        case 'breathe':
+          spine.rotation.z = 0
+          break
+        case 'sway':
+          spine.rotation.z = Math.sin(this.elapsed * 0.8) * 0.04
+          break
+        case 'hairtouch': {
+          const armR = this.vrm.humanoid.getNormalizedBoneNode('rightUpperArm')
+          if (armR) armR.rotation.z = -1.0 + Math.sin(this.elapsed * 1.2) * 0.1
+          break
+        }
+        default:
+          break
+      }
+    }
+  }
+}
+```
+
+- [ ] **Step 4: 跑测试,确认通过**
+
+```bash
+npm test -- idle-controller
+```
+
+Expected: PASS,4 个用例。
+
+- [ ] **Step 5: 接入 App(idle 先 update,lookAt 后 update)**
+
+修改 `src/renderer/App.tsx` 的加载块:
+
+```tsx
+;(async () => {
+  const vrm = await stage.loadVrm('./default.vrm').catch((e) => {
+    console.error('VRM load failed', e)
+    return null
+  })
+  if (!vrm) return
+  const idle = new (await import('./scene/IdleController')).IdleController(vrm)
+  const lookAt = new (await import('./scene/MouseLookAt')).MouseLookAt(
+    vrm, stage.camera, stage.renderer.domElement,
+  )
+  // 顺序很重要:idle 先写 spine/手臂,lookAt 后覆盖 head
+  stage.addUpdater((dt) => idle.update(dt))
+  stage.addUpdater((dt) => lookAt.update(dt))
+})()
+```
+
+- [ ] **Step 6: typecheck + 全测试**
+
+```bash
+npm test
+npm run typecheck
+```
+
+Expected: 全 PASS。
+
+- [ ] **Step 7: 手动验证 idle**
+
+```bash
+npm run dev
+```
+
+Expected: VRM ���色有轻微呼吸感;每 4-8 秒身体姿态/手臂会切换一次;头部仍跟随鼠标。
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add .
+git commit -m "feat: procedural idle controller with state machine"
+```
+
+---
+
+## Task 10: DragController + ContextMenu(右键菜单)
+
+**Files:**
+- Create: `src/renderer/app/DragController.ts`
+- Create: `src/renderer/app/ContextMenu.tsx`
+- Modify: `src/renderer/App.tsx`
+- Create: `tests/drag-controller.test.ts`
+
+> 思路:在透明窗口的 canvas 上监听 pointerdown/move/up。按下若位移超过阈值(5px)则进入 drag 模式,通过 IPC `window:move` 让主进程移动窗口。短按(<阈值 + <300ms)是 click,触发后续 ChatInput 显示(本任务先 emit 一个 callback,Task 11 再连)。右键菜单用 Headless 自定义弹层(因为窗口透明 + 穿透,Electron 内置 contextMenu 与桌宠位置不友好)。
+
+- [ ] **Step 1: 写 drag 判定测试(失败)**
+
+`tests/drag-controller.test.ts`:
+
+```ts
+import { describe, it, expect } from 'vitest'
+import { DragGesture } from '../src/renderer/app/DragController'
+
+describe('DragGesture', () => {
+  it('classifies short small-movement release as click', () => {
+    const g = new DragGesture()
+    const now = 0
+    g.onDown({ x: 100, y: 100, t: now })
+    g.onMove({ x: 102, y: 101, t: now + 100 })
+    const r = g.onUp({ x: 102, y: 101, t: now + 200 })
+    expect(r).toBe('click')
+  })
+
+  it('classifies movement past threshold as drag (no click)', () => {
+    const g = new DragGesture()
+    g.onDown({ x: 100, y: 100, t: 0 })
+    g.onMove({ x: 130, y: 100, t: 50 })
+    const r = g.onUp({ x: 130, y: 100, t: 100 })
+    expect(r).toBe('drag-end')
+  })
+
+  it('emits incremental dx/dy during drag', () => {
+    const g = new DragGesture()
+    g.onDown({ x: 100, y: 100, t: 0 })
+    expect(g.onMove({ x: 110, y: 105, t: 10 })).toEqual({ phase: 'move', dx: 10, dy: 5 })
+    expect(g.onMove({ x: 115, y: 108, t: 20 })).toEqual({ phase: 'move', dx: 5, dy: 3 })
+  })
+
+  it('long press without movement is still click (not long-press in MVP)', () => {
+    const g = new DragGesture()
+    g.onDown({ x: 100, y: 100, t: 0 })
+    const r = g.onUp({ x: 100, y: 100, t: 800 })
+    expect(r).toBe('click')
+  })
+})
+```
+
+- [ ] **Step 2: 跑测试,确认失败**
+
+```bash
+npm test -- drag-controller
+```
+
+Expected: FAIL。
+
+- [ ] **Step 3: 实现 DragController**
+
+`src/renderer/app/DragController.ts`:
+
+```ts
+export interface PointerSample { x: number; y: number; t: number }
+export type GestureResult = 'click' | 'drag-end' | null
+export interface MoveDelta { phase: 'move'; dx: number; dy: number }
+
+const DRAG_THRESHOLD_PX = 5
+
+export class DragGesture {
+  private start: PointerSample | null = null
+  private last: PointerSample | null = null
+  private dragging = false
+  private totalDx = 0
+  private totalDy = 0
+
+  onDown(p: PointerSample): void {
+    this.start = p
+    this.last = p
+    this.dragging = false
+    this.totalDx = 0
+    this.totalDy = 0
+  }
+
+  onMove(p: PointerSample): MoveDelta | null {
+    if (!this.start || !this.last) return null
+    const dx = p.x - this.last.x
+    const dy = p.y - this.last.y
+    this.totalDx += Math.abs(dx)
+    this.totalDy += Math.abs(dy)
+    this.last = p
+    if (!this.dragging) {
+      const distFromStart = Math.hypot(p.x - this.start.x, p.y - this.start.y)
+      if (distFromStart >= DRAG_THRESHOLD_PX) this.dragging = true
+    }
+    if (this.dragging) return { phase: 'move', dx, dy }
+    return null
+  }
+
+  onUp(_p: PointerSample): GestureResult {
+    const wasDragging = this.dragging
+    this.start = null
+    this.last = null
+    this.dragging = false
+    return wasDragging ? 'drag-end' : 'click'
+  }
+}
+
+export interface DragCallbacks {
+  onMove: (dx: number, dy: number) => void
+  onClick: () => void
+}
+
+export function attachDrag(target: HTMLElement, cb: DragCallbacks): () => void {
+  const g = new DragGesture()
+  const sample = (e: PointerEvent): PointerSample => ({ x: e.clientX, y: e.clientY, t: e.timeStamp })
+
+  const onDown = (e: PointerEvent) => {
+    if (e.button !== 0) return
+    target.setPointerCapture(e.pointerId)
+    g.onDown(sample(e))
+  }
+  const onMove = (e: PointerEvent) => {
+    const r = g.onMove(sample(e))
+    if (r) cb.onMove(r.dx, r.dy)
+  }
+  const onUp = (e: PointerEvent) => {
+    if (e.button !== 0) return
+    target.releasePointerCapture(e.pointerId)
+    const r = g.onUp(sample(e))
+    if (r === 'click') cb.onClick()
+  }
+
+  target.addEventListener('pointerdown', onDown)
+  target.addEventListener('pointermove', onMove)
+  target.addEventListener('pointerup', onUp)
+  target.addEventListener('pointercancel', onUp)
+
+  return () => {
+    target.removeEventListener('pointerdown', onDown)
+    target.removeEventListener('pointermove', onMove)
+    target.removeEventListener('pointerup', onUp)
+    target.removeEventListener('pointercancel', onUp)
+  }
+}
+```
+
+- [ ] **Step 4: 跑测试,确认通过**
+
+```bash
+npm test -- drag-controller
+```
+
+Expected: PASS,4 个用例。
+
+- [ ] **Step 5: 实现 ContextMenu**
+
+`src/renderer/app/ContextMenu.tsx`:
+
+```tsx
+import { useEffect, useState } from 'react'
+
+interface MenuItem { label: string; onClick: () => void }
+interface Props { items: MenuItem[] }
+
+export function ContextMenu({ items }: Props) {
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
+
+  useEffect(() => {
+    const onContext = (e: MouseEvent) => {
+      e.preventDefault()
+      setPos({ x: e.clientX, y: e.clientY })
+    }
+    const onClickAway = () => setPos(null)
+    window.addEventListener('contextmenu', onContext)
+    window.addEventListener('click', onClickAway)
+    return () => {
+      window.removeEventListener('contextmenu', onContext)
+      window.removeEventListener('click', onClickAway)
+    }
+  }, [])
+
+  if (!pos) return null
+
+  return (
+    <div
+      data-interactive="true"
+      className="absolute bg-neutral-900/95 text-white text-sm rounded shadow-lg py-1 select-none"
+      style={{ left: pos.x, top: pos.y, minWidth: 120 }}
+    >
+      {items.map((it) => (
+        <button
+          key={it.label}
+          className="block w-full text-left px-3 py-1 hover:bg-neutral-700"
+          onClick={() => { it.onClick(); setPos(null) }}
+        >
+          {it.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+```
+
+- [ ] **Step 6: 接入 App(canvas 上挂 drag,渲染 ContextMenu)**
+
+`src/renderer/App.tsx`:
+
+```tsx
+import { useEffect, useRef, useState } from 'react'
+import { startPassthroughLoop } from './app/passthrough'
+import { VrmStage } from './scene/VrmStage'
+import { attachDrag } from './app/DragController'
+import { ContextMenu } from './app/ContextMenu'
+
+export default function App() {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const stageRef = useRef<VrmStage | null>(null)
+  const [chatVisible, setChatVisible] = useState(false)
+
+  useEffect(() => startPassthroughLoop((i) => window.api.window.setPassthrough(i)), [])
+
+  useEffect(() => {
+    if (!canvasRef.current) return
+    const stage = new VrmStage(canvasRef.current)
+    stageRef.current = stage
+    stage.start()
+    ;(async () => {
+      const vrm = await stage.loadVrm('./default.vrm').catch((e) => { console.error(e); return null })
+      if (!vrm) return
+      const idle = new (await import('./scene/IdleController')).IdleController(vrm)
+      const lookAt = new (await import('./scene/MouseLookAt')).MouseLookAt(
+        vrm, stage.camera, stage.renderer.domElement,
+      )
+      stage.addUpdater((dt) => idle.update(dt))
+      stage.addUpdater((dt) => lookAt.update(dt))
+    })()
+    const detachDrag = attachDrag(canvasRef.current, {
+      onMove: (dx, dy) => window.api.window.moveBy(dx, dy),
+      onClick: () => setChatVisible((v) => !v),
+    })
+    return () => { detachDrag(); stage.dispose() }
+  }, [])
+
+  return (
+    <div className="w-screen h-screen relative">
+      <canvas
+        ref={canvasRef}
+        data-interactive="true"
+        className="w-full h-full block"
+        style={{ background: 'transparent' }}
+      />
+      {chatVisible && (
+        <div
+          data-interactive="true"
+          className="absolute bottom-4 left-4 right-4 bg-black/70 text-white p-2 rounded"
+        >
+          (Task 11 will replace with ChatBubble + ChatInput)
+        </div>
+      )}
+      <ContextMenu items={[
+        { label: chatVisible ? 'Hide chat' : 'Show chat', onClick: () => setChatVisible((v) => !v) },
+        { label: 'Quit', onClick: () => window.api.window.quit() },
+      ]} />
+    </div>
+  )
+}
+```
+
+> canvas 加 `data-interactive="true"`,使鼠标悬停 VRM 画布时窗口不穿透,这样 pointerdown 才能拿到。这等价于"全画布命中",VRM 像素级命中后续优化(Task 14 验证清单里列出来,本期不做)。
+
+- [ ] **Step 7: typecheck + 全测试**
+
+```bash
+npm test
+npm run typecheck
+```
+
+Expected: 全 PASS。
+
+- [ ] **Step 8: 手动验证拖动 + 右键 + 单击**
+
+```bash
+npm run dev
+```
+
+Expected:
+- 在 VRM 画布上按住左键拖动 → 整个窗口跟着移动
+- 短按左键(无明显位移) → 出现「Task 11 will replace...」黑色面板
+- 右键 → 弹出菜单,Quit 可关闭程序
+- 拖动后释放,菜单不自动出
+
+> ⚠️ 已知问题:canvas 全画布 `data-interactive="true"` 意味着即使在 VRM 周围空白处也不穿透。MVP 接受;Task 14 列入「nice-to-have」。
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add .
+git commit -m "feat: drag-to-move and context menu on transparent canvas"
+```
+
+---
+
+## Task 11: ChatBubble + ChatInput + useChatStream
+
+**Files:**
+- Create: `src/renderer/chat/useChatStream.ts`
+- Create: `src/renderer/chat/ChatInput.tsx`
+- Create: `src/renderer/chat/ChatBubble.tsx`
+- Modify: `src/renderer/App.tsx`
+- Create: `tests/use-chat-stream.test.tsx`
+
+> 职责:`useChatStream` 用 IPC 订阅 chat:delta/done/error,聚合成响应式 state。`ChatInput` 是输入框,`ChatBubble` 是头顶气泡。
+
+- [ ] **Step 1: 安装 React 测试库**
+
+```bash
+npm install --save-dev @testing-library/react @testing-library/jest-dom jsdom
+```
+
+修改 `vitest.config.ts`:把 `environment: 'node'` 改成 `'jsdom'`(全局 jsdom,方便 React 测试)。同时已经为 passthrough 测试用了 jsdom,改后 passthrough 测试需要去掉手动 JSDOM 部分:
+
+`tests/passthrough.test.ts` 重写成:
+
+```ts
+import { describe, it, expect, beforeEach } from 'vitest'
+import { isInteractiveAtPoint } from '../src/renderer/app/passthrough'
+
+describe('isInteractiveAtPoint', () => {
+  beforeEach(() => {
+    document.body.innerHTML = `
+      <div id="bg" style="width:100px;height:100px"></div>
+      <button id="btn" data-interactive="true" style="position:absolute;left:10px;top:10px;width:20px;height:20px"></button>`
+  })
+
+  it('returns true at interactive point', () => {
+    expect(isInteractiveAtPoint(15, 15)).toBe(true)
+  })
+
+  it('returns false at non-interactive point', () => {
+    expect(isInteractiveAtPoint(80, 80)).toBe(false)
+  })
+})
+```
+
+> 注:jsdom 的 `elementFromPoint` 实现有限,可能始终返回 body。若失败,加一行 mock:
+
+```ts
+document.elementFromPoint = (x, y) => {
+  if (x >= 10 && x <= 30 && y >= 10 && y <= 30) return document.querySelector('#btn')
+  return document.querySelector('#bg')
+}
+```
+
+- [ ] **Step 2: 写 useChatStream 失败测试**
+
+`tests/use-chat-stream.test.tsx`:
+
+```tsx
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { renderHook, act } from '@testing-library/react'
+import { useChatStream } from '../src/renderer/chat/useChatStream'
+
+describe('useChatStream', () => {
+  let deltaCb: ((t: string) => void) | null = null
+  let doneCb: ((t: string) => void) | null = null
+  let errCb: ((m: string) => void) | null = null
+  let sentText: string | null = null
+
+  beforeEach(() => {
+    deltaCb = null; doneCb = null; errCb = null; sentText = null
+    ;(globalThis as any).window.api = {
+      chat: {
+        send: (text: string) => { sentText = text },
+        abort: vi.fn(),
+        onDelta: (cb: any) => { deltaCb = cb; return () => { deltaCb = null } },
+        onDone: (cb: any) => { doneCb = cb; return () => { doneCb = null } },
+        onError: (cb: any) => { errCb = cb; return () => { errCb = null } },
+      },
+    }
+  })
+
+  it('aggregates deltas into text and marks done', async () => {
+    const { result } = renderHook(() => useChatStream())
+    act(() => { result.current.send('hi') })
+    expect(sentText).toBe('hi')
+    expect(result.current.streaming).toBe(true)
+    act(() => { deltaCb?.('Hel'); deltaCb?.('lo') })
+    expect(result.current.text).toBe('Hello')
+    act(() => { doneCb?.('Hello') })
+    expect(result.current.streaming).toBe(false)
+    expect(result.current.text).toBe('Hello')
+  })
+
+  it('captures error messages', () => {
+    const { result } = renderHook(() => useChatStream())
+    act(() => { result.current.send('x') })
+    act(() => { errCb?.('boom') })
+    expect(result.current.error).toBe('boom')
+    expect(result.current.streaming).toBe(false)
+  })
+})
+```
+
+- [ ] **Step 3: 跑测试,确认失败**
+
+```bash
+npm test -- use-chat-stream
+```
+
+Expected: FAIL。
+
+- [ ] **Step 4: 实现 useChatStream**
+
+`src/renderer/chat/useChatStream.ts`:
+
+```ts
+import { useCallback, useEffect, useRef, useState } from 'react'
+
+export interface ChatStreamApi {
+  text: string
+  streaming: boolean
+  error: string | null
+  send: (text: string) => void
+  abort: () => void
+  reset: () => void
+}
+
+export function useChatStream(): ChatStreamApi {
+  const [text, setText] = useState('')
+  const [streaming, setStreaming] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const offRef = useRef<Array<() => void>>([])
+
+  useEffect(() => {
+    const offDelta = window.api.chat.onDelta((t) => setText((p) => p + t))
+    const offDone = window.api.chat.onDone(() => setStreaming(false))
+    const offErr = window.api.chat.onError((m) => { setError(m); setStreaming(false) })
+    offRef.current = [offDelta, offDone, offErr]
+    return () => offRef.current.forEach((fn) => fn())
+  }, [])
+
+  const send = useCallback((t: string) => {
+    setText('')
+    setError(null)
+    setStreaming(true)
+    window.api.chat.send(t)
+  }, [])
+
+  const abort = useCallback(() => {
+    window.api.chat.abort()
+    setStreaming(false)
+  }, [])
+
+  const reset = useCallback(() => {
+    setText('')
+    setError(null)
+    setStreaming(false)
+  }, [])
+
+  return { text, streaming, error, send, abort, reset }
+}
+```
+
+- [ ] **Step 5: 跑测试,确认通过**
+
+```bash
+npm test -- use-chat-stream
+```
+
+Expected: PASS,2 个用例。
+
+- [ ] **Step 6: 实现 ChatInput**
+
+`src/renderer/chat/ChatInput.tsx`:
+
+```tsx
+import { useState, type KeyboardEvent } from 'react'
+
+interface Props { disabled?: boolean; onSubmit: (text: string) => void }
+
+export function ChatInput({ disabled, onSubmit }: Props) {
+  const [v, setV] = useState('')
+  const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' && v.trim() && !disabled) {
+      onSubmit(v.trim())
+      setV('')
+    }
+  }
+  return (
+    <input
+      data-interactive="true"
+      className="w-full bg-neutral-800 text-white rounded px-3 py-2 outline-none placeholder-neutral-500"
+      placeholder={disabled ? '回复中...' : '说点什么 (Enter)'}
+      value={v}
+      onChange={(e) => setV(e.target.value)}
+      onKeyDown={onKey}
+      autoFocus
+    />
+  )
+}
+```
+
+- [ ] **Step 7: 实现 ChatBubble**
+
+`src/renderer/chat/ChatBubble.tsx`:
+
+```tsx
+interface Props { text: string; streaming: boolean; error: string | null }
+
+export function ChatBubble({ text, streaming, error }: Props) {
+  if (!text && !streaming && !error) return null
+  return (
+    <div
+      data-interactive="true"
+      className="absolute top-4 left-4 right-4 bg-white/95 text-neutral-900 rounded-2xl px-4 py-3 shadow-lg select-text"
+      style={{ maxHeight: 200, overflow: 'auto' }}
+    >
+      {error ? (
+        <span className="text-red-600">出错了:{error}</span>
+      ) : (
+        <span>{text}{streaming && <span className="opacity-50">▍</span>}</span>
+      )}
+    </div>
+  )
+}
+```
+
+- [ ] **Step 8: App 接线**
+
+`src/renderer/App.tsx`(替换聊天 placeholder):
+
+```tsx
+import { useEffect, useRef, useState } from 'react'
+import { startPassthroughLoop } from './app/passthrough'
+import { VrmStage } from './scene/VrmStage'
+import { attachDrag } from './app/DragController'
+import { ContextMenu } from './app/ContextMenu'
+import { useChatStream } from './chat/useChatStream'
+import { ChatInput } from './chat/ChatInput'
+import { ChatBubble } from './chat/ChatBubble'
+
+export default function App() {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const [chatOpen, setChatOpen] = useState(false)
+  const chat = useChatStream()
+
+  useEffect(() => startPassthroughLoop((i) => window.api.window.setPassthrough(i)), [])
+
+  useEffect(() => {
+    if (!canvasRef.current) return
+    const stage = new VrmStage(canvasRef.current)
+    stage.start()
+    ;(async () => {
+      const vrm = await stage.loadVrm('./default.vrm').catch((e) => { console.error(e); return null })
+      if (!vrm) return
+      const idle = new (await import('./scene/IdleController')).IdleController(vrm)
+      const lookAt = new (await import('./scene/MouseLookAt')).MouseLookAt(
+        vrm, stage.camera, stage.renderer.domElement,
+      )
+      stage.addUpdater((dt) => idle.update(dt))
+      stage.addUpdater((dt) => lookAt.update(dt))
+    })()
+    const detachDrag = attachDrag(canvasRef.current, {
+      onMove: (dx, dy) => window.api.window.moveBy(dx, dy),
+      onClick: () => setChatOpen((v) => !v),
+    })
+    return () => { detachDrag(); stage.dispose() }
+  }, [])
+
+  return (
+    <div className="w-screen h-screen relative">
+      <canvas
+        ref={canvasRef}
+        data-interactive="true"
+        className="w-full h-full block"
+        style={{ background: 'transparent' }}
+      />
+      <ChatBubble text={chat.text} streaming={chat.streaming} error={chat.error} />
+      {chatOpen && (
+        <div
+          data-interactive="true"
+          className="absolute bottom-4 left-4 right-4"
+        >
+          <ChatInput
+            disabled={chat.streaming}
+            onSubmit={(t) => chat.send(t)}
+          />
+        </div>
+      )}
+      <ContextMenu items={[
+        { label: chatOpen ? 'Hide input' : 'Show input', onClick: () => setChatOpen((v) => !v) },
+        { label: 'Quit', onClick: () => window.api.window.quit() },
+      ]} />
+    </div>
+  )
+}
+```
+
+- [ ] **Step 9: typecheck + 全测试**
+
+```bash
+npm test
+npm run typecheck
+```
+
+Expected: 全 PASS。
+
+- [ ] **Step 10: 手动验证完整对话**
+
+前置:已配置 `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN` + `ANTHROPIC_MODEL` 环境变量。
+
+```bash
+npm run dev
+```
+
+Expected:
+- 单击 VRM → 底部弹输入框
+- 输入「你好」回车 → 顶部气泡出现流式回复 + 闪烁光标
+- 完成后光标消失,文本保留
+- 再次点 VRM 隐藏输入框;气泡保留直到用户输入新消息
+
+- [ ] **Step 11: Commit**
+
+```bash
+git add .
+git commit -m "feat: chat input and streaming bubble wired to llm pipeline"
+```
+
+---
+
+> **Batch 4 结束。** 已交付 Task 0-11(共 12 个),覆盖完整 MVP 主体功能:对话端到端跑通 + 拖动 + 右键菜单 + idle 动画 + 鼠标跟随。
 >
-> **Batch 4(下一批)将包含:** Task 9 IdleController(状态机) / Task 10 DragController + ContextMenu / Task 11 ChatBubble + ChatInput + useChatStream。
+> **Batch 5(最后一批)将包含:** Task 12 ExpressionController(关键词→表情)/ Task 13 SettingsPanel UI / Task 14 端到端验收 + electron-builder 打包。
