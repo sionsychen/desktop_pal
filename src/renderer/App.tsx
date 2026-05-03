@@ -22,9 +22,12 @@ export default function App() {
         return null
       })
       if (!vrm) return
+      const idle = new (await import('./scene/IdleController')).IdleController(vrm)
       const lookAt = new (await import('./scene/MouseLookAt')).MouseLookAt(
         vrm, stage.camera, stage.renderer.domElement,
       )
+      // 顺序很重要:idle 先写 spine/手臂,lookAt 后覆盖 head
+      stage.addUpdater((dt) => idle.update(dt))
       stage.addUpdater((dt) => lookAt.update(dt))
     })()
     return () => stage.dispose()
