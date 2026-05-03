@@ -11,33 +11,40 @@ export function ChatInput({ disabled, onSubmit }: Props) {
       setV('')
     }
   }
+  const ringColor = focused ? '#ff6fa3' : '#5b3a52'
   return (
     <div
       data-interactive="true"
-      className="rounded-full backdrop-blur-md flex items-center gap-2 pl-3 pr-2 py-1.5"
+      className="relative flex items-center gap-2 pl-3 pr-1.5 py-1.5 select-none"
       style={{
-        background: 'linear-gradient(135deg, rgba(255,255,255,0.92) 0%, rgba(255,236,242,0.88) 100%)',
-        border: focused
-          ? '1.5px solid rgba(245,163,184,0.85)'
-          : '1px solid rgba(255,182,193,0.55)',
+        borderRadius: 9999,
+        background: 'linear-gradient(180deg, #ffffff 0%, #fff0f5 55%, #ffd6e6 100%)',
+        border: `2.5px solid ${ringColor}`,
         boxShadow: focused
-          ? '0 4px 18px -2px rgba(245,163,184,0.45), 0 0 0 4px rgba(255,209,221,0.35)'
-          : '0 2px 10px -2px rgba(245,163,184,0.25)',
-        transition: 'all 180ms ease',
+          ? `0 4px 0 0 ${ringColor}, 0 0 0 4px rgba(255,182,210,0.35)`
+          : `0 4px 0 0 ${ringColor}`,
+        transition: 'all 160ms cubic-bezier(.34,1.56,.64,1)',
+        transform: focused ? 'translateY(-1px)' : 'translateY(0)',
       }}
     >
       <span
         aria-hidden
-        style={{ color: focused ? '#f5a3b8' : '#e7b8c5', transition: 'color 180ms ease' }}
-        className="text-base leading-none select-none"
+        className="text-base leading-none"
+        style={{
+          color: focused ? '#ffd84d' : '#ffaecd',
+          textShadow: '0 1px 0 #5b3a52, 1px 0 0 #5b3a52, -1px 0 0 #5b3a52, 0 -1px 0 #5b3a52',
+          transition: 'color 160ms ease',
+        }}
       >
-        ✦
+        ★
       </span>
       <input
-        className="flex-1 min-w-0 bg-transparent text-neutral-700 text-sm outline-none"
+        className="flex-1 min-w-0 bg-transparent outline-none text-sm"
         style={{
-          fontFamily: '"PingFang SC", "Hiragino Sans", system-ui, sans-serif',
-          letterSpacing: '0.01em',
+          color: '#5b3a52',
+          fontFamily: '"Comic Sans MS", "Hiragino Maru Gothic ProN", "PingFang SC", system-ui, sans-serif',
+          fontWeight: 600,
+          letterSpacing: '0.02em',
         }}
         placeholder={disabled ? '回复中…' : '说点什么…'}
         value={v}
@@ -47,19 +54,38 @@ export function ChatInput({ disabled, onSubmit }: Props) {
         onBlur={() => setFocused(false)}
         autoFocus
       />
-      <kbd
-        className="text-[10px] px-1.5 py-0.5 rounded-md select-none"
-        style={{
-          background: 'rgba(255,182,193,0.25)',
-          color: '#b06b80',
-          border: '1px solid rgba(255,182,193,0.4)',
-          opacity: v.trim() && !disabled ? 1 : 0.45,
-          transition: 'opacity 180ms ease',
-          fontFamily: 'system-ui, sans-serif',
+      <button
+        type="button"
+        onClick={() => {
+          if (v.trim() && !disabled) {
+            onSubmit(v.trim())
+            setV('')
+          }
         }}
+        disabled={!v.trim() || disabled}
+        className="text-[11px] leading-none rounded-full select-none"
+        style={{
+          padding: '6px 10px',
+          background: v.trim() && !disabled
+            ? 'linear-gradient(180deg, #ffd54a 0%, #ffb14a 100%)'
+            : 'linear-gradient(180deg, #efe4ea 0%, #d9c8d2 100%)',
+          color: v.trim() && !disabled ? '#5b3a52' : '#9b8590',
+          border: '2px solid #5b3a52',
+          boxShadow: v.trim() && !disabled
+            ? '0 2px 0 0 #5b3a52'
+            : '0 2px 0 0 #9b8590',
+          fontWeight: 800,
+          fontFamily: '"Comic Sans MS", system-ui, sans-serif',
+          textShadow: v.trim() && !disabled ? '0 1px 0 rgba(255,255,255,0.5)' : 'none',
+          cursor: v.trim() && !disabled ? 'pointer' : 'default',
+          transition: 'transform 100ms ease',
+        }}
+        onMouseDown={(e) => { (e.currentTarget as HTMLButtonElement).style.transform = 'translateY(2px)'; (e.currentTarget as HTMLButtonElement).style.boxShadow = '0 0px 0 0 #5b3a52' }}
+        onMouseUp={(e) => { (e.currentTarget as HTMLButtonElement).style.transform = ''; (e.currentTarget as HTMLButtonElement).style.boxShadow = '' }}
+        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.transform = ''; (e.currentTarget as HTMLButtonElement).style.boxShadow = '' }}
       >
-        Enter ↵
-      </kbd>
+        GO!
+      </button>
     </div>
   )
 }
