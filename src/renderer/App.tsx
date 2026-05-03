@@ -27,12 +27,22 @@ export default function App() {
       )
       stage.addUpdater((dt) => idle.update(dt))
       stage.addUpdater((dt) => lookAt.update(dt))
+      const expr = new (await import('./scene/ExpressionController')).ExpressionController(vrm)
+      stage.addUpdater((dt) => expr.update(dt))
+      ;(window as any).__triggerExpr = (t: string) => expr.trigger(t)
     })()
     const detachDrag = attachDrag(canvasRef.current, {
       onMove: (dx, dy) => window.api.window.moveBy(dx, dy),
       onClick: () => setChatOpen((v) => !v),
     })
     return () => { detachDrag(); stage.dispose() }
+  }, [])
+
+  useEffect(() => {
+    const off = window.api.chat.onDone((fullText) => {
+      ;(window as any).__triggerExpr?.(fullText)
+    })
+    return off
   }, [])
 
   return (
