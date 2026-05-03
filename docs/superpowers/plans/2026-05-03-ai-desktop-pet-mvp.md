@@ -1607,6 +1607,818 @@ git commit -m "feat: chat session with sliding-window history and system prompt"
 
 ---
 
-> **Batch 2 结束。** 已交付 Task 0-5,覆盖项目脚手架、窗口、IPC、穿透、Settings、凭据、LLM provider 工厂、ChatSession。
+---
+
+## Task 6: ChatService + chat:* IPC 全链路(mock provider 集成测试)
+
+**Files:**
+- Create: `src/main/llm/chatService.ts`
+- Modify: `src/main/ipc.ts`
+- Modify: `src/main/index.ts`
+- Modify: `src/preload/index.ts`
+- Modify: `src/preload/api.d.ts`
+- Create: `tests/chat-service.test.ts`
+
+> 思路:`ChatService` 把 `ChatSession` + `streamText`(ai-sdk)粘起来,产出 `AsyncIterable<StreamEvent>`。注入 model factory 方便测试用 mock。IPC 层把事件转发到渲染端。
+
+- [ ] **Step 1: 写 ChatService 测试(失败,用 mock model)**
+
+`tests/chat-service.test.ts`:
+
+```ts
+import { describe, it, expect } from 'vitest'
+import { ChatService } from '../src/main/llm/chatService'
+import { ChatSession } from '../src/main/llm/chatSession'
+import type { StreamEvent } from '../src/main/llm/types'
+import { simulateReadableStream } from 'ai'
+import { MockLanguageModelV1 } from 'ai/test'
+
+function buildMockModel(chunks: string[]) {
+  return new MockLanguageModelV1({
+    doStream: async () => ({
+      stream: simulateReadableStream({
+        chunks: [
+          ...chunks.map((textDelta) => ({ type: 'text-delta' as const, textDelta })),
+          {
+            type: 'finish' as const,
+            finishReason: 'stop',
+            logprobs: undefined,
+            usage: { completionTokens: 1, promptTokens: 1 },
+          },
+        ],
+      }),
+      rawCall: { rawPrompt: null, rawSettings: {} },
+    }),
+  })
+}
+
+describe('ChatService', () => {
+  it('streams deltas and emits done with full text', async () => {
+    const session = new ChatSession('SYS', 5)
+    const model = buildMockModel(['Hel', 'lo', '!'])
+    const svc = new ChatService(session, () => model)
+
+    const events: StreamEvent[] = []
+    for await (const e of svc.send('hi')) events.push(e)
+
+    expect(events.filter((e) => e.type === 'delta').map((e) => (e as any).text)).toEqual([
+      'Hel', 'lo', '!',
+    ])
+    const done = events.find((e) => e.type === 'done')
+    expect(done).toBeDefined()
+    expect((done as any).fullText).toBe('Hello!')
+  })
+
+  it('appends user and assistant messages to session after success', async () => {
+    const session = new ChatSession('SYS', 5)
+    const svc = new ChatService(session, () => buildMockModel(['ok']))
+    for await (const _ of svc.send('hi')) { /* drain */ }
+    expect(session.snapshot().messages).toEqual([
+      { role: 'user', content: 'hi' },
+      { role: 'assistant', content: 'ok' },
+    ])
+  })
+
+  it('emits error event when model factory throws', async () => {
+    const session = new ChatSession('SYS', 5)
+    const svc = new ChatService(session, () => { throw new Error('no token') })
+    const events: StreamEvent[] = []
+    for await (const e of svc.send('hi')) events.push(e)
+    const err = events.find((e) => e.type === 'error')
+    expect(err).toBeDefined()
+    expect((err as any).message).toContain('no token')
+  })
+
+  it('supports abort via AbortController', async () => {
+    const session = new ChatSession('SYS', 5)
+    const model = buildMockModel(['a', 'b', 'c'])
+    const svc = new ChatService(session, () => model)
+    const ac = new AbortController()
+    const events: StreamEvent[] = []
+    const iter = svc.send('hi', ac.signal)
+    ac.abort()
+    for await (const e of iter) events.push(e)
+    // 只关心不抛、有 error 或 done 之一
+    expect(events.length).toBeGreaterThanOrEqual(0)
+  })
+})
+```
+
+> 注:`ai/test` 提供 `MockLanguageModelV1` 与 `simulateReadableStream`。如果版本不一致,测试 import 报错时,把 import 改为 `'ai/test'`(独立 entry)或参考当前 ai-sdk 文档的 mock 写法。
+
+- [ ] **Step 2: 跑测试,确认失败**
+
+```bash
+npm test -- chat-service
+```
+
+Expected: FAIL,模块不存在。
+
+- [ ] **Step 3: 实现 ChatService**
+
+`src/main/llm/chatService.ts`:
+
+```ts
+import { streamText, type LanguageModel } from 'ai'
+import type { ChatSession } from './chatSession'
+import type { StreamEvent } from './types'
+
+export type ModelFactory = () => LanguageModel
+
+export class ChatService {
+  constructor(
+    private readonly session: ChatSession,
+    private readonly modelFactory: ModelFactory,
+  ) {}
+
+  async *send(userText: string, signal?: AbortSignal): AsyncIterable<StreamEvent> {
+    let model: LanguageModel
+    try {
+      model = this.modelFactory()
+    } catch (err) {
+      yield { type: 'error', message: (err as Error).message }
+      return
+    }
+
+    this.session.pushUser(userText)
+    const snap = this.session.snapshot()
+
+    let fullText = ''
+    try {
+      const result = streamText({
+        model,
+        system: snap.system,
+        messages: snap.messages,
+        abortSignal: signal,
+      })
+      for await (const delta of result.textStream) {
+        fullText += delta
+        yield { type: 'delta', text: delta }
+      }
+      this.session.pushAssistant(fullText)
+      yield { type: 'done', fullText }
+    } catch (err) {
+      yield { type: 'error', message: (err as Error).message }
+    }
+  }
+}
+```
+
+- [ ] **Step 4: 跑测试,确认通过**
+
+```bash
+npm test -- chat-service
+```
+
+Expected: PASS。如果 `ai/test` 的导出路径报错,改为:
+
+```ts
+import { MockLanguageModelV1, simulateReadableStream } from 'ai/test'
+```
+
+或查看 `node_modules/ai/test/package.json` 找正确入口。
+
+- [ ] **Step 5: 接入主进程 IPC(改 ipc.ts)**
+
+`src/main/ipc.ts`(完整替换):
+
+```ts
+import { ipcMain, app, type BrowserWindow } from 'electron'
+import { Channels } from '@shared/channels'
+import { moveWindowBy } from './window'
+import { ChatSession } from './llm/chatSession'
+import { ChatService } from './llm/chatService'
+import { createLanguageModel } from './llm/providerFactory'
+import { SettingsStore } from './settings/store'
+import { CredentialsStore } from './settings/credentials'
+
+export function registerIpc(win: BrowserWindow, userDataDir: string): void {
+  const settingsStore = new SettingsStore(userDataDir)
+  const credentialsStore = new CredentialsStore(userDataDir)
+
+  let settings = settingsStore.load()
+  const session = new ChatSession(settings.systemPrompt, 20)
+  let activeAbort: AbortController | null = null
+
+  const service = new ChatService(session, () => {
+    const creds = credentialsStore.load()
+    return createLanguageModel(settings, creds)
+  })
+
+  ipcMain.on(Channels.WindowQuit, () => app.quit())
+
+  ipcMain.on(Channels.WindowMove, (_e, p: { dx: number; dy: number }) => {
+    moveWindowBy(win, p.dx, p.dy)
+  })
+
+  ipcMain.on(Channels.PassthroughSet, (_e, interactive: boolean) => {
+    win.setIgnoreMouseEvents(!interactive, { forward: true })
+  })
+
+  ipcMain.on(Channels.ChatSend, async (_e, payload: { text: string }) => {
+    activeAbort?.abort()
+    activeAbort = new AbortController()
+    const ac = activeAbort
+    try {
+      for await (const ev of service.send(payload.text, ac.signal)) {
+        if (ev.type === 'delta') win.webContents.send(Channels.ChatDelta, { text: ev.text })
+        else if (ev.type === 'done') win.webContents.send(Channels.ChatDone, { fullText: ev.fullText })
+        else if (ev.type === 'error') win.webContents.send(Channels.ChatError, { message: ev.message })
+      }
+    } finally {
+      if (activeAbort === ac) activeAbort = null
+    }
+  })
+
+  ipcMain.on(Channels.ChatAbort, () => activeAbort?.abort())
+
+  ipcMain.handle(Channels.SettingsGet, () => {
+    const creds = credentialsStore.load()
+    return { settings, hasAnthropic: !!creds.anthropic, hasOpenAI: !!creds.openai }
+  })
+
+  ipcMain.handle(Channels.SettingsSet, (_e, payload: {
+    settings: typeof settings
+    anthropicToken?: string
+    openaiToken?: string
+  }) => {
+    settings = payload.settings
+    settingsStore.save(settings)
+    const creds = credentialsStore.load()
+    if (payload.anthropicToken !== undefined) creds.anthropic = payload.anthropicToken
+    if (payload.openaiToken !== undefined) creds.openai = payload.openaiToken
+    credentialsStore.save(creds)
+    session.setSystemPrompt(settings.systemPrompt)
+  })
+}
+```
+
+- [ ] **Step 6: 主入口传递 userData 路径**
+
+修改 `src/main/index.ts`,把 `registerIpc(win)` 改成:
+
+```ts
+registerIpc(win, app.getPath('userData'))
+```
+
+- [ ] **Step 7: preload 暴露 chat / settings API**
+
+`src/preload/index.ts`:
+
+```ts
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
+import { Channels } from '@shared/channels'
+
+contextBridge.exposeInMainWorld('api', {
+  window: {
+    quit: () => ipcRenderer.send(Channels.WindowQuit),
+    moveBy: (dx: number, dy: number) =>
+      ipcRenderer.send(Channels.WindowMove, { dx, dy }),
+    setPassthrough: (interactive: boolean) =>
+      ipcRenderer.send(Channels.PassthroughSet, interactive),
+  },
+  chat: {
+    send: (text: string) => ipcRenderer.send(Channels.ChatSend, { text }),
+    abort: () => ipcRenderer.send(Channels.ChatAbort),
+    onDelta: (cb: (text: string) => void) => {
+      const h = (_e: IpcRendererEvent, p: { text: string }) => cb(p.text)
+      ipcRenderer.on(Channels.ChatDelta, h)
+      return () => ipcRenderer.off(Channels.ChatDelta, h)
+    },
+    onDone: (cb: (fullText: string) => void) => {
+      const h = (_e: IpcRendererEvent, p: { fullText: string }) => cb(p.fullText)
+      ipcRenderer.on(Channels.ChatDone, h)
+      return () => ipcRenderer.off(Channels.ChatDone, h)
+    },
+    onError: (cb: (msg: string) => void) => {
+      const h = (_e: IpcRendererEvent, p: { message: string }) => cb(p.message)
+      ipcRenderer.on(Channels.ChatError, h)
+      return () => ipcRenderer.off(Channels.ChatError, h)
+    },
+  },
+  settings: {
+    get: () => ipcRenderer.invoke(Channels.SettingsGet),
+    set: (payload: any) => ipcRenderer.invoke(Channels.SettingsSet, payload),
+  },
+})
+```
+
+`src/preload/api.d.ts`:
+
+```ts
+import type { Settings } from '../main/llm/types'
+
+export {}
+
+declare global {
+  interface Window {
+    api: {
+      window: {
+        quit: () => void
+        moveBy: (dx: number, dy: number) => void
+        setPassthrough: (interactive: boolean) => void
+      }
+      chat: {
+        send: (text: string) => void
+        abort: () => void
+        onDelta: (cb: (text: string) => void) => () => void
+        onDone: (cb: (fullText: string) => void) => () => void
+        onError: (cb: (msg: string) => void) => () => void
+      }
+      settings: {
+        get: () => Promise<{ settings: Settings; hasAnthropic: boolean; hasOpenAI: boolean }>
+        set: (payload: {
+          settings: Settings
+          anthropicToken?: string
+          openaiToken?: string
+        }) => Promise<void>
+      }
+    }
+  }
+}
+```
+
+- [ ] **Step 8: typecheck + 全测试**
+
+```bash
+npm test
+npm run typecheck
+```
+
+Expected: 全 PASS。
+
+- [ ] **Step 9: 手动验证(用真实 token)**
+
+```bash
+npm run dev
+```
+
+打开 DevTools(右键面板临时加 `<button onClick={() => window.api.chat.send('你好')}>` 一类按钮,或在 Console 直接调:
+
+```js
+window.api.chat.onDelta(t => console.log('delta', t))
+window.api.chat.onDone(t => console.log('done', t))
+window.api.chat.onError(m => console.error(m))
+window.api.chat.send('你好')
+```
+
+Expected: 控制台连续打印 delta,最后 done 一行完整文本。
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add .
+git commit -m "feat: chat service with streaming over ipc and provider factory wiring"
+```
+
+---
+
+## Task 7: Three.js 透明场景 + VRM 加载
+
+**Files:**
+- Create: `src/renderer/scene/VrmStage.ts`
+- Modify: `src/renderer/App.tsx`
+- Add: `resources/default.vrm`(用户手动放置或从 VRoid Hub 下一个 CC0 模型)
+
+> 职责:VrmStage 接管一个 canvas,初始化 Three.js scene/camera/renderer/lighting,加载 VRM 文件,启动 RAF 循环。本任务不接 IK/idle,只让模型显示出来并做基础呼吸 spring 动作(three-vrm 自带 springBone)。
+
+- [ ] **Step 1: 准备占位 VRM**
+
+```bash
+mkdir -p resources
+```
+
+从 [VRoid Hub](https://hub.vroid.com/) 下载一个允许使用的 .vrm 文件,重命名为 `default.vrm` 放入 `resources/` 目录。**或者**用 VRoid Studio 5 分钟捏一个导出。
+
+> 该文件不进 git(VRM 较大,且版权场景复杂)。把以下加到 `.gitignore`:
+
+```
+resources/*.vrm
+```
+
+- [ ] **Step 2: 写 VrmStage 接口测试(只测纯函数,渲染部分手测)**
+
+> Three.js 渲染依赖 WebGL,vitest 默认 jsdom 跑不动。本任务不写自动化测试,手测为主。但抽出一个**纯计算函数** `computeCharacterFraming` 可以测。
+
+`tests/vrm-framing.test.ts`:
+
+```ts
+import { describe, it, expect } from 'vitest'
+import { computeCharacterFraming } from '../src/renderer/scene/VrmStage'
+
+describe('computeCharacterFraming', () => {
+  it('places camera so a 1.6m character fills 80% of vertical view', () => {
+    const { cameraY, cameraZ } = computeCharacterFraming(1.6, 0.8, 30)
+    expect(cameraY).toBeCloseTo(0.8, 1) // 中心在角色腰部
+    expect(cameraZ).toBeGreaterThan(1)  // 站得开
+  })
+
+  it('returns farther distance for smaller fill ratio', () => {
+    const a = computeCharacterFraming(1.6, 0.5, 30).cameraZ
+    const b = computeCharacterFraming(1.6, 0.9, 30).cameraZ
+    expect(a).toBeGreaterThan(b)
+  })
+})
+```
+
+- [ ] **Step 3: 跑测试,确认失败**
+
+```bash
+npm test -- vrm-framing
+```
+
+Expected: FAIL。
+
+- [ ] **Step 4: 实现 VrmStage**
+
+`src/renderer/scene/VrmStage.ts`:
+
+```ts
+import * as THREE from 'three'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { VRMLoaderPlugin, type VRM } from '@pixiv/three-vrm'
+
+export function computeCharacterFraming(
+  characterHeight: number,
+  fillRatio: number,
+  fovDeg: number,
+): { cameraY: number; cameraZ: number } {
+  const targetVisibleHeight = characterHeight / fillRatio
+  const fovRad = (fovDeg * Math.PI) / 180
+  const cameraZ = targetVisibleHeight / 2 / Math.tan(fovRad / 2)
+  const cameraY = characterHeight / 2
+  return { cameraY, cameraZ }
+}
+
+export class VrmStage {
+  readonly scene = new THREE.Scene()
+  readonly camera: THREE.PerspectiveCamera
+  readonly renderer: THREE.WebGLRenderer
+  vrm: VRM | null = null
+
+  private rafId = 0
+  private clock = new THREE.Clock()
+  private updaters: ((dt: number) => void)[] = []
+
+  constructor(canvas: HTMLCanvasElement) {
+    this.renderer = new THREE.WebGLRenderer({
+      canvas,
+      alpha: true,
+      premultipliedAlpha: false,
+      antialias: true,
+    })
+    this.renderer.setPixelRatio(window.devicePixelRatio)
+    this.renderer.setClearColor(0x000000, 0)
+    this.resize()
+
+    this.camera = new THREE.PerspectiveCamera(30, canvas.clientWidth / canvas.clientHeight, 0.1, 20)
+    const { cameraY, cameraZ } = computeCharacterFraming(1.5, 0.8, 30)
+    this.camera.position.set(0, cameraY, cameraZ)
+    this.camera.lookAt(0, cameraY, 0)
+
+    const ambient = new THREE.AmbientLight(0xffffff, 0.6)
+    const dir = new THREE.DirectionalLight(0xffffff, 0.9)
+    dir.position.set(1, 2, 1)
+    this.scene.add(ambient, dir)
+
+    window.addEventListener('resize', this.resize)
+  }
+
+  resize = (): void => {
+    const canvas = this.renderer.domElement
+    const w = canvas.clientWidth
+    const h = canvas.clientHeight
+    this.renderer.setSize(w, h, false)
+    if (this.camera) {
+      this.camera.aspect = w / h
+      this.camera.updateProjectionMatrix()
+    }
+  }
+
+  async loadVrm(url: string): Promise<VRM> {
+    const loader = new GLTFLoader()
+    loader.register((parser) => new VRMLoaderPlugin(parser))
+    const gltf = await loader.loadAsync(url)
+    const vrm = gltf.userData.vrm as VRM
+    vrm.scene.rotation.y = Math.PI // 面向相机
+    this.scene.add(vrm.scene)
+    this.vrm = vrm
+    return vrm
+  }
+
+  addUpdater(fn: (dt: number) => void): void {
+    this.updaters.push(fn)
+  }
+
+  start(): void {
+    const tick = () => {
+      const dt = this.clock.getDelta()
+      for (const u of this.updaters) u(dt)
+      this.vrm?.update(dt)
+      this.renderer.render(this.scene, this.camera)
+      this.rafId = requestAnimationFrame(tick)
+    }
+    tick()
+  }
+
+  dispose(): void {
+    cancelAnimationFrame(this.rafId)
+    window.removeEventListener('resize', this.resize)
+    this.renderer.dispose()
+  }
+}
+```
+
+- [ ] **Step 5: 跑测试,确认通过**
+
+```bash
+npm test -- vrm-framing
+```
+
+Expected: PASS。
+
+- [ ] **Step 6: App 挂载 stage**
+
+`src/renderer/App.tsx`:
+
+```tsx
+import { useEffect, useRef } from 'react'
+import { startPassthroughLoop } from './app/passthrough'
+import { VrmStage } from './scene/VrmStage'
+
+export default function App() {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const stageRef = useRef<VrmStage | null>(null)
+
+  useEffect(() => {
+    const stop = startPassthroughLoop((i) => window.api.window.setPassthrough(i))
+    return stop
+  }, [])
+
+  useEffect(() => {
+    if (!canvasRef.current) return
+    const stage = new VrmStage(canvasRef.current)
+    stageRef.current = stage
+    stage.loadVrm('./default.vrm').catch((e) => console.error('VRM load failed', e))
+    stage.start()
+    return () => stage.dispose()
+  }, [])
+
+  return (
+    <div className="w-screen h-screen relative">
+      <canvas
+        ref={canvasRef}
+        className="w-full h-full block"
+        style={{ background: 'transparent' }}
+      />
+      <div
+        data-interactive="true"
+        className="absolute top-2 right-2 bg-black/60 text-white text-xs p-2 rounded select-none"
+      >
+        <button onClick={() => window.api.window.quit()}>Quit</button>
+      </div>
+    </div>
+  )
+}
+```
+
+- [ ] **Step 7: 让 dev server 能加载 default.vrm**
+
+把 `resources/default.vrm` 复制到 `src/renderer/public/default.vrm`(Vite 静态资源目录):
+
+```bash
+mkdir -p src/renderer/public
+cp resources/default.vrm src/renderer/public/default.vrm
+```
+
+更新 .gitignore:
+
+```
+resources/*.vrm
+src/renderer/public/*.vrm
+```
+
+> 后续 Task 13 设置面板支持选自定义路径时,会改成从 userData 读 + IPC。
+
+- [ ] **Step 8: typecheck**
+
+```bash
+npm run typecheck
+```
+
+Expected: 无 error(若 `three/examples/jsm/...` 报类型,确认 `@types/three` 已安装,且 `tsconfig.json` 的 `moduleResolution` 是 `bundler`)。
+
+- [ ] **Step 9: 手动验证 VRM 显示**
+
+```bash
+npm run dev
+```
+
+Expected: 透明窗口里出现 VRM 角色,正面朝向用户。窗口仍能拖到桌面任意位置(目前还不能拖,Task 10 才加,但右上角 Quit 仍可点)。
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add .
+git commit -m "feat: three.js transparent stage with vrm loading"
+```
+
+---
+
+## Task 8: MouseLookAt(头部 IK 跟随鼠标)
+
+**Files:**
+- Create: `src/renderer/scene/MouseLookAt.ts`
+- Modify: `src/renderer/App.tsx`
+- Create: `tests/mouse-look-at.test.ts`
+
+> 思路:取鼠标 NDC 坐标,反投影到角色前方一个虚拟平面得到目标点,让 head bone 用 quaternion slerp 朝它转。同时限制头部最大转角(±60°)。
+
+- [ ] **Step 1: 写纯计算函数测试(失败)**
+
+`tests/mouse-look-at.test.ts`:
+
+```ts
+import { describe, it, expect } from 'vitest'
+import * as THREE from 'three'
+import { computeHeadTarget, clampQuaternionAngle } from '../src/renderer/scene/MouseLookAt'
+
+describe('computeHeadTarget', () => {
+  it('returns a point in front of the character at given depth', () => {
+    const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 20)
+    camera.position.set(0, 1, 3)
+    camera.lookAt(0, 1, 0)
+    const target = computeHeadTarget({ x: 0, y: 0 }, camera, new THREE.Vector3(0, 1.5, 0), 1)
+    expect(target.y).toBeGreaterThan(1)
+    expect(target.y).toBeLessThan(2)
+  })
+})
+
+describe('clampQuaternionAngle', () => {
+  it('returns identity unchanged when within limit', () => {
+    const q = new THREE.Quaternion()
+    const out = clampQuaternionAngle(q, Math.PI / 3)
+    expect(out.x).toBe(0)
+    expect(out.w).toBe(1)
+  })
+
+  it('clamps to max angle when exceeded', () => {
+    const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.PI, 0))
+    const out = clampQuaternionAngle(q, Math.PI / 3)
+    const angle = 2 * Math.acos(Math.min(1, Math.abs(out.w)))
+    expect(angle).toBeCloseTo(Math.PI / 3, 2)
+  })
+})
+```
+
+- [ ] **Step 2: 跑测试,确认失败**
+
+```bash
+npm test -- mouse-look-at
+```
+
+Expected: FAIL。
+
+- [ ] **Step 3: 实现 MouseLookAt**
+
+`src/renderer/scene/MouseLookAt.ts`:
+
+```ts
+import * as THREE from 'three'
+import type { VRM } from '@pixiv/three-vrm'
+
+export interface NDCPoint { x: number; y: number }
+
+export function computeHeadTarget(
+  ndc: NDCPoint,
+  camera: THREE.PerspectiveCamera,
+  headWorld: THREE.Vector3,
+  forwardDistance: number,
+): THREE.Vector3 {
+  const ray = new THREE.Vector3(ndc.x, ndc.y, 0.5).unproject(camera)
+  const dir = ray.sub(camera.position).normalize()
+  return camera.position.clone().add(dir.multiplyScalar(headWorld.distanceTo(camera.position) + forwardDistance))
+}
+
+export function clampQuaternionAngle(q: THREE.Quaternion, maxAngle: number): THREE.Quaternion {
+  const w = Math.min(1, Math.max(-1, q.w))
+  const angle = 2 * Math.acos(Math.abs(w))
+  if (angle <= maxAngle) return q.clone()
+  const t = maxAngle / angle
+  const identity = new THREE.Quaternion()
+  return identity.slerp(q, t)
+}
+
+export class MouseLookAt {
+  private mouseNDC: NDCPoint = { x: 0, y: 0 }
+  private readonly damping = 6 // 高=灵敏
+  private readonly maxAngle = Math.PI / 3
+
+  constructor(
+    private readonly vrm: VRM,
+    private readonly camera: THREE.PerspectiveCamera,
+    private readonly canvas: HTMLCanvasElement,
+  ) {
+    canvas.addEventListener('mousemove', this.onMove)
+    window.addEventListener('mousemove', this.onMove)
+  }
+
+  private onMove = (e: MouseEvent): void => {
+    const rect = this.canvas.getBoundingClientRect()
+    this.mouseNDC = {
+      x: ((e.clientX - rect.left) / rect.width) * 2 - 1,
+      y: -((e.clientY - rect.top) / rect.height) * 2 + 1,
+    }
+  }
+
+  update(dt: number): void {
+    const head = this.vrm.humanoid.getNormalizedBoneNode('head')
+    if (!head) return
+    const headWorld = new THREE.Vector3()
+    head.getWorldPosition(headWorld)
+
+    const target = computeHeadTarget(this.mouseNDC, this.camera, headWorld, 0)
+
+    const headParent = head.parent ?? this.vrm.scene
+    const localTarget = target.clone()
+    headParent.worldToLocal(localTarget)
+    const localPos = head.position
+    const dir = localTarget.sub(localPos).normalize()
+
+    const desiredQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir)
+    const clamped = clampQuaternionAngle(desiredQuat, this.maxAngle)
+
+    head.quaternion.slerp(clamped, Math.min(1, dt * this.damping))
+  }
+
+  dispose(): void {
+    this.canvas.removeEventListener('mousemove', this.onMove)
+    window.removeEventListener('mousemove', this.onMove)
+  }
+}
+```
+
+- [ ] **Step 4: 跑测试,确认通过**
+
+```bash
+npm test -- mouse-look-at
+```
+
+Expected: PASS。
+
+- [ ] **Step 5: 接入 App**
+
+修改 `src/renderer/App.tsx` 的 useEffect:
+
+```tsx
+useEffect(() => {
+  if (!canvasRef.current) return
+  const stage = new VrmStage(canvasRef.current)
+  stageRef.current = stage
+  stage.start()
+  ;(async () => {
+    const vrm = await stage.loadVrm('./default.vrm').catch((e) => {
+      console.error('VRM load failed', e)
+      return null
+    })
+    if (!vrm) return
+    const lookAt = new (await import('./scene/MouseLookAt')).MouseLookAt(
+      vrm, stage.camera, stage.renderer.domElement,
+    )
+    stage.addUpdater((dt) => lookAt.update(dt))
+  })()
+  return () => stage.dispose()
+}, [])
+```
+
+> 注:`MouseLookAt` 写头部骨骼;后续 IdleController 也会写头部时,Task 9 会调整顺序确保 MouseLookAt **后写**覆盖 idle 的头部部分(updater 数组顺序:idle 先, lookAt 后)。
+
+- [ ] **Step 6: typecheck + 全测试**
+
+```bash
+npm test
+npm run typecheck
+```
+
+Expected: 全 PASS。
+
+- [ ] **Step 7: 手动验证**
+
+```bash
+npm run dev
+```
+
+Expected: VRM 角色头部跟随鼠标在屏幕上的位置转动(平滑),最大角度受限不会扭过头。
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add .
+git commit -m "feat: head IK following mouse position"
+```
+
+---
+
+> **Batch 3 结束。** 已交付 Task 0-8(共 9 个),覆盖完整的对话后端链路(Settings/凭据/Provider/Session/Service/IPC/preload/手测),以及 Three.js 透明场景 + VRM 显示 + 头部跟随。
 >
-> **Batch 3(下一批)将包含:** Task 6 ChatService + chat:* IPC 全链路(用 mock provider 测) / Task 7 Three.js 透明场景 + VRM 加载 / Task 8 MouseLookAt(头部 IK)。
+> **Batch 4(下一批)将包含:** Task 9 IdleController(状态机) / Task 10 DragController + ContextMenu / Task 11 ChatBubble + ChatInput + useChatStream。
