@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { Channels } from '@shared/channels'
 
 contextBridge.exposeInMainWorld('api', {
@@ -8,5 +8,28 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.send(Channels.WindowMove, { dx, dy }),
     setPassthrough: (interactive: boolean) =>
       ipcRenderer.send(Channels.PassthroughSet, interactive),
+  },
+  chat: {
+    send: (text: string) => ipcRenderer.send(Channels.ChatSend, { text }),
+    abort: () => ipcRenderer.send(Channels.ChatAbort),
+    onDelta: (cb: (text: string) => void) => {
+      const h = (_e: IpcRendererEvent, p: { text: string }) => cb(p.text)
+      ipcRenderer.on(Channels.ChatDelta, h)
+      return () => ipcRenderer.off(Channels.ChatDelta, h)
+    },
+    onDone: (cb: (fullText: string) => void) => {
+      const h = (_e: IpcRendererEvent, p: { fullText: string }) => cb(p.fullText)
+      ipcRenderer.on(Channels.ChatDone, h)
+      return () => ipcRenderer.off(Channels.ChatDone, h)
+    },
+    onError: (cb: (msg: string) => void) => {
+      const h = (_e: IpcRendererEvent, p: { message: string }) => cb(p.message)
+      ipcRenderer.on(Channels.ChatError, h)
+      return () => ipcRenderer.off(Channels.ChatError, h)
+    },
+  },
+  settings: {
+    get: () => ipcRenderer.invoke(Channels.SettingsGet),
+    set: (payload: any) => ipcRenderer.invoke(Channels.SettingsSet, payload),
   },
 })

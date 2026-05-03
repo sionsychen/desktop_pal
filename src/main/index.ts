@@ -12,7 +12,7 @@ app.commandLine.appendSwitch('force_high_performance_gpu')
 app.whenReady().then(async () => {
   const preload = join(__dirname, '../preload/index.js')
   const win = createPetWindow(preload)
-  registerIpc(win)
+  registerIpc(win, app.getPath('userData'))
   win.setIgnoreMouseEvents(true, { forward: true })
   createTray(win)
 
