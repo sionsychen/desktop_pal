@@ -971,6 +971,642 @@ git commit -m "feat: mouse passthrough toggling via DOM hit-test"
 
 ---
 
-> **后续 Task(3-14)将在下一批写入。** 当前批次:Task 0 + Task 1 + Task 2,覆盖项目脚手架、透明窗口、托盘、IPC 框架、鼠标穿透。
+---
+
+## Task 3: Settings 存储 + 环境变量预填 + 凭据加密
+
+**Files:**
+- Create: `src/main/llm/types.ts`
+- Create: `src/main/settings/defaults.ts`
+- Create: `src/main/settings/store.ts`
+- Create: `src/main/settings/credentials.ts`
+- Create: `tests/settings-store.test.ts`
+- Create: `tests/settings-defaults.test.ts`
+
+> 思路:settings.json 只存非敏感字段(provider 选择 / baseURL / model);token 经 safeStorage 加密单独落盘 `credentials.enc`。首次启动若文件不存在,从环境变量预填。
+
+- [ ] **Step 1: 定义 LLM / Settings 类型**
+
+`src/main/llm/types.ts`:
+
+```ts
+export type ProviderKind = 'anthropic' | 'openai-compatible'
+
+export interface ProviderConfig {
+  baseURL: string
+  model: string
+}
+
+export interface Settings {
+  provider: ProviderKind
+  anthropic: ProviderConfig
+  openai: ProviderConfig
+  systemPrompt: string
+}
+
+export interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export type StreamEvent =
+  | { type: 'delta'; text: string }
+  | { type: 'done'; fullText: string }
+  | { type: 'error'; message: string }
+```
+
+- [ ] **Step 2: 写 defaults 测试(失败)**
+
+`tests/settings-defaults.test.ts`:
+
+```ts
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { buildDefaultSettings } from '../src/main/settings/defaults'
+
+describe('buildDefaultSettings', () => {
+  const original = { ...process.env }
+  beforeEach(() => {
+    delete process.env.ANTHROPIC_BASE_URL
+    delete process.env.ANTHROPIC_AUTH_TOKEN
+    delete process.env.ANTHROPIC_MODEL
+    delete process.env.OPENAI_BASE_URL
+    delete process.env.OPENAI_API_KEY
+    delete process.env.OPENAI_MODEL
+  })
+  afterEach(() => {
+    process.env = { ...original }
+  })
+
+  it('uses anthropic when ANTHROPIC env vars present', () => {
+    process.env.ANTHROPIC_BASE_URL = 'https://x.test'
+    process.env.ANTHROPIC_AUTH_TOKEN = 't'
+    process.env.ANTHROPIC_MODEL = 'claude-sonnet-4-5'
+    const { settings, credentials } = buildDefaultSettings()
+    expect(settings.provider).toBe('anthropic')
+    expect(settings.anthropic.baseURL).toBe('https://x.test')
+    expect(settings.anthropic.model).toBe('claude-sonnet-4-5')
+    expect(credentials.anthropic).toBe('t')
+  })
+
+  it('uses openai when only OPENAI env vars present', () => {
+    process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+    process.env.OPENAI_API_KEY = 'sk-x'
+    process.env.OPENAI_MODEL = 'gpt-4o'
+    const { settings, credentials } = buildDefaultSettings()
+    expect(settings.provider).toBe('openai-compatible')
+    expect(settings.openai.baseURL).toBe('https://api.openai.com/v1')
+    expect(credentials.openai).toBe('sk-x')
+  })
+
+  it('prefers anthropic when both present, but fills both', () => {
+    process.env.ANTHROPIC_BASE_URL = 'https://a.test'
+    process.env.ANTHROPIC_AUTH_TOKEN = 'ta'
+    process.env.ANTHROPIC_MODEL = 'claude'
+    process.env.OPENAI_BASE_URL = 'https://o.test'
+    process.env.OPENAI_API_KEY = 'so'
+    process.env.OPENAI_MODEL = 'gpt'
+    const { settings, credentials } = buildDefaultSettings()
+    expect(settings.provider).toBe('anthropic')
+    expect(settings.openai.baseURL).toBe('https://o.test')
+    expect(credentials.anthropic).toBe('ta')
+    expect(credentials.openai).toBe('so')
+  })
+
+  it('returns empty config when no env vars', () => {
+    const { settings, credentials } = buildDefaultSettings()
+    expect(settings.provider).toBe('anthropic')
+    expect(settings.anthropic.model).toBe('')
+    expect(credentials.anthropic).toBe('')
+    expect(credentials.openai).toBe('')
+  })
+})
+```
+
+- [ ] **Step 3: 跑测试,确认失败**
+
+```bash
+npm test -- settings-defaults
+```
+
+Expected: FAIL,模块不存在。
+
+- [ ] **Step 4: 实现 defaults.ts**
+
+`src/main/settings/defaults.ts`:
+
+```ts
+import type { Settings } from '@main/llm/types'
+
+export const DEFAULT_SYSTEM_PROMPT = `你是一只活泼的桌面伙伴,陪在用户的电脑桌面上。回答简短、友好、有少量颜文字或表情。不要用 markdown 格式。`
+
+export interface Credentials {
+  anthropic: string
+  openai: string
+}
+
+export interface DefaultsResult {
+  settings: Settings
+  credentials: Credentials
+}
+
+export function buildDefaultSettings(): DefaultsResult {
+  const env = process.env
+  const hasAnthropic = !!(env.ANTHROPIC_BASE_URL && env.ANTHROPIC_AUTH_TOKEN)
+  const hasOpenAI = !!(env.OPENAI_BASE_URL && env.OPENAI_API_KEY)
+
+  const settings: Settings = {
+    provider: hasAnthropic || !hasOpenAI ? 'anthropic' : 'openai-compatible',
+    anthropic: {
+      baseURL: env.ANTHROPIC_BASE_URL ?? '',
+      model: env.ANTHROPIC_MODEL ?? '',
+    },
+    openai: {
+      baseURL: env.OPENAI_BASE_URL ?? '',
+      model: env.OPENAI_MODEL ?? '',
+    },
+    systemPrompt: DEFAULT_SYSTEM_PROMPT,
+  }
+
+  const credentials: Credentials = {
+    anthropic: env.ANTHROPIC_AUTH_TOKEN ?? '',
+    openai: env.OPENAI_API_KEY ?? '',
+  }
+
+  return { settings, credentials }
+}
+```
+
+- [ ] **Step 5: 跑测试,确认通过**
+
+```bash
+npm test -- settings-defaults
+```
+
+Expected: PASS,4 个用例。
+
+- [ ] **Step 6: 写 store 测试(基于临时目录,绕开 Electron app)**
+
+`tests/settings-store.test.ts`:
+
+```ts
+import { describe, it, expect, beforeEach } from 'vitest'
+import { mkdtempSync, rmSync, existsSync, readFileSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import { SettingsStore } from '../src/main/settings/store'
+
+describe('SettingsStore', () => {
+  let dir: string
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'pal-settings-'))
+  })
+
+  it('writes and reads settings.json', () => {
+    const store = new SettingsStore(dir)
+    const initial = store.load()
+    expect(initial.provider).toBeDefined()
+
+    initial.anthropic.model = 'claude-test'
+    store.save(initial)
+
+    const reread = new SettingsStore(dir).load()
+    expect(reread.anthropic.model).toBe('claude-test')
+    expect(existsSync(join(dir, 'settings.json'))).toBe(true)
+  })
+
+  it('returns defaults when file missing', () => {
+    const s = new SettingsStore(dir).load()
+    expect(s.provider).toMatch(/anthropic|openai-compatible/)
+  })
+
+  it('overwrites file on save', () => {
+    const store = new SettingsStore(dir)
+    const s = store.load()
+    s.openai.baseURL = 'https://test'
+    store.save(s)
+    const raw = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf-8'))
+    expect(raw.openai.baseURL).toBe('https://test')
+  })
+})
+```
+
+- [ ] **Step 7: 跑测试,确认失败**
+
+```bash
+npm test -- settings-store
+```
+
+Expected: FAIL,模块不存在。
+
+- [ ] **Step 8: 实现 store.ts**
+
+`src/main/settings/store.ts`:
+
+```ts
+import { existsSync, readFileSync, writeFileSync } from 'fs'
+import { join } from 'path'
+import type { Settings } from '@main/llm/types'
+import { buildDefaultSettings } from './defaults'
+
+export class SettingsStore {
+  private readonly path: string
+
+  constructor(userDataDir: string) {
+    this.path = join(userDataDir, 'settings.json')
+  }
+
+  load(): Settings {
+    if (!existsSync(this.path)) {
+      return buildDefaultSettings().settings
+    }
+    try {
+      return JSON.parse(readFileSync(this.path, 'utf-8')) as Settings
+    } catch {
+      return buildDefaultSettings().settings
+    }
+  }
+
+  save(settings: Settings): void {
+    writeFileSync(this.path, JSON.stringify(settings, null, 2), 'utf-8')
+  }
+}
+```
+
+- [ ] **Step 9: 跑测试,确认通过**
+
+```bash
+npm test -- settings-store
+```
+
+Expected: PASS,3 个用例。
+
+- [ ] **Step 10: 实现 credentials.ts(safeStorage 包装,Electron 运行时才用)**
+
+> safeStorage 仅在 Electron 主进程可用。模块内做兜底:非 Electron 环境(测试)用明文存,Electron 下用加密。
+
+`src/main/settings/credentials.ts`:
+
+```ts
+import { existsSync, readFileSync, writeFileSync } from 'fs'
+import { join } from 'path'
+import type { Credentials } from './defaults'
+import { buildDefaultSettings } from './defaults'
+
+export class CredentialsStore {
+  private readonly path: string
+
+  constructor(userDataDir: string) {
+    this.path = join(userDataDir, 'credentials.enc')
+  }
+
+  load(): Credentials {
+    if (!existsSync(this.path)) {
+      return buildDefaultSettings().credentials
+    }
+    try {
+      const buf = readFileSync(this.path)
+      const safe = this.getSafeStorage()
+      const json = safe ? safe.decryptString(buf) : buf.toString('utf-8')
+      return JSON.parse(json) as Credentials
+    } catch {
+      return { anthropic: '', openai: '' }
+    }
+  }
+
+  save(creds: Credentials): void {
+    const json = JSON.stringify(creds)
+    const safe = this.getSafeStorage()
+    const buf = safe ? safe.encryptString(json) : Buffer.from(json, 'utf-8')
+    writeFileSync(this.path, buf)
+  }
+
+  private getSafeStorage(): { encryptString(s: string): Buffer; decryptString(b: Buffer): string } | null {
+    try {
+      // 动态 require,避免非 Electron 环境(vitest)崩溃
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const electron = require('electron')
+      if (electron.safeStorage && electron.safeStorage.isEncryptionAvailable()) {
+        return electron.safeStorage
+      }
+      return null
+    } catch {
+      return null
+    }
+  }
+}
+```
+
+> 注:`require('electron')` 在 ESM 下需要 `createRequire`。改成:
+
+```ts
+import { createRequire } from 'module'
+const requireCJS = createRequire(import.meta.url)
+
+// ...
+private getSafeStorage() {
+  try {
+    const electron = requireCJS('electron')
+    if (electron.safeStorage?.isEncryptionAvailable?.()) {
+      return electron.safeStorage
+    }
+  } catch { /* not in electron */ }
+  return null
+}
+```
+
+- [ ] **Step 11: typecheck + 全部测试**
+
+```bash
+npm test
+npm run typecheck
+```
+
+Expected: 全 PASS。
+
+- [ ] **Step 12: Commit**
+
+```bash
+git add .
+git commit -m "feat: settings store with env-based defaults and encrypted credentials"
+```
+
+---
+
+## Task 4: LLM Provider Factory(Anthropic + OpenAI-Compatible)
+
+**Files:**
+- Create: `src/main/llm/providerFactory.ts`
+- Create: `tests/provider-factory.test.ts`
+
+> 思路:工厂返回一个 `LanguageModel`(ai-sdk 的统一类型),不直接 stream。streaming 在 Task 6 chatService 里调 `streamText`。本任务只确保根据 settings 正确实例化 provider。
+
+- [ ] **Step 1: 写工厂测试(失败)**
+
+`tests/provider-factory.test.ts`:
+
+```ts
+import { describe, it, expect } from 'vitest'
+import { createLanguageModel } from '../src/main/llm/providerFactory'
+import type { Settings } from '../src/main/llm/types'
+
+const baseSettings: Settings = {
+  provider: 'anthropic',
+  anthropic: { baseURL: 'https://api.anthropic.com', model: 'claude-sonnet-4-5' },
+  openai: { baseURL: 'https://api.openai.com/v1', model: 'gpt-4o' },
+  systemPrompt: 'x',
+}
+
+describe('createLanguageModel', () => {
+  it('builds an anthropic model when provider=anthropic', () => {
+    const model = createLanguageModel(baseSettings, { anthropic: 'k', openai: '' })
+    expect(model).toBeDefined()
+    // ai-sdk model 实例至少有 modelId 属性
+    expect((model as any).modelId).toBe('claude-sonnet-4-5')
+  })
+
+  it('builds an openai-compatible model when provider=openai-compatible', () => {
+    const settings: Settings = { ...baseSettings, provider: 'openai-compatible' }
+    const model = createLanguageModel(settings, { anthropic: '', openai: 'sk' })
+    expect((model as any).modelId).toBe('gpt-4o')
+  })
+
+  it('throws when token missing for selected provider', () => {
+    expect(() => createLanguageModel(baseSettings, { anthropic: '', openai: '' }))
+      .toThrow(/anthropic.*token/i)
+  })
+
+  it('throws when openai-compatible has no baseURL', () => {
+    const settings: Settings = {
+      ...baseSettings,
+      provider: 'openai-compatible',
+      openai: { baseURL: '', model: 'gpt-4o' },
+    }
+    expect(() => createLanguageModel(settings, { anthropic: '', openai: 'sk' }))
+      .toThrow(/baseURL/i)
+  })
+})
+```
+
+- [ ] **Step 2: 跑测试,确认失败**
+
+```bash
+npm test -- provider-factory
+```
+
+Expected: FAIL。
+
+- [ ] **Step 3: 实现 providerFactory.ts**
+
+`src/main/llm/providerFactory.ts`:
+
+```ts
+import { createAnthropic } from '@ai-sdk/anthropic'
+import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
+import type { LanguageModel } from 'ai'
+import type { Settings } from './types'
+import type { Credentials } from '@main/settings/defaults'
+
+export function createLanguageModel(settings: Settings, creds: Credentials): LanguageModel {
+  if (settings.provider === 'anthropic') {
+    if (!creds.anthropic) throw new Error('Missing anthropic API token')
+    if (!settings.anthropic.model) throw new Error('Missing anthropic model id')
+    const client = createAnthropic({
+      baseURL: settings.anthropic.baseURL || undefined,
+      apiKey: creds.anthropic,
+    })
+    return client(settings.anthropic.model)
+  }
+
+  // openai-compatible
+  if (!creds.openai) throw new Error('Missing openai API token')
+  if (!settings.openai.baseURL) throw new Error('openai-compatible requires baseURL')
+  if (!settings.openai.model) throw new Error('Missing openai model id')
+  const client = createOpenAICompatible({
+    name: 'custom',
+    baseURL: settings.openai.baseURL,
+    apiKey: creds.openai,
+  })
+  return client(settings.openai.model)
+}
+```
+
+- [ ] **Step 4: 跑测试,确认通过**
+
+```bash
+npm test -- provider-factory
+```
+
+Expected: PASS,4 个用例。
+
+- [ ] **Step 5: typecheck**
+
+```bash
+npm run typecheck
+```
+
+Expected: 无 error。
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add .
+git commit -m "feat: llm provider factory for anthropic and openai-compatible"
+```
+
+---
+
+## Task 5: ChatSession(历史 + 滑动窗口 + system prompt)
+
+**Files:**
+- Create: `src/main/llm/chatSession.ts`
+- Create: `tests/chat-session.test.ts`
+
+> 职责:维护一个 session 的消息历史,提供 `pushUser` / `pushAssistant` / `snapshot`(返回 messages + system 给 streamText 用)。滑动窗口在添加时裁剪。
+
+- [ ] **Step 1: 写 ChatSession 测试(失败)**
+
+`tests/chat-session.test.ts`:
+
+```ts
+import { describe, it, expect } from 'vitest'
+import { ChatSession } from '../src/main/llm/chatSession'
+
+describe('ChatSession', () => {
+  it('starts empty and exposes system prompt', () => {
+    const s = new ChatSession('SYS', 5)
+    const snap = s.snapshot()
+    expect(snap.system).toBe('SYS')
+    expect(snap.messages).toEqual([])
+  })
+
+  it('pushes user and assistant messages', () => {
+    const s = new ChatSession('SYS', 5)
+    s.pushUser('hi')
+    s.pushAssistant('hello')
+    expect(s.snapshot().messages).toEqual([
+      { role: 'user', content: 'hi' },
+      { role: 'assistant', content: 'hello' },
+    ])
+  })
+
+  it('drops oldest messages when exceeding maxTurns (2 messages per turn)', () => {
+    const s = new ChatSession('SYS', 2) // keep 2 turns = 4 messages
+    s.pushUser('u1')
+    s.pushAssistant('a1')
+    s.pushUser('u2')
+    s.pushAssistant('a2')
+    s.pushUser('u3')
+    s.pushAssistant('a3')
+    const m = s.snapshot().messages
+    expect(m).toHaveLength(4)
+    expect(m[0]).toEqual({ role: 'user', content: 'u2' })
+    expect(m[3]).toEqual({ role: 'assistant', content: 'a3' })
+  })
+
+  it('updates system prompt without losing history', () => {
+    const s = new ChatSession('A', 5)
+    s.pushUser('x')
+    s.setSystemPrompt('B')
+    expect(s.snapshot().system).toBe('B')
+    expect(s.snapshot().messages).toHaveLength(1)
+  })
+
+  it('clear() empties messages but keeps system prompt', () => {
+    const s = new ChatSession('SYS', 5)
+    s.pushUser('x')
+    s.clear()
+    expect(s.snapshot().messages).toEqual([])
+    expect(s.snapshot().system).toBe('SYS')
+  })
+})
+```
+
+- [ ] **Step 2: 跑测试,确认失败**
+
+```bash
+npm test -- chat-session
+```
+
+Expected: FAIL。
+
+- [ ] **Step 3: 实现 chatSession.ts**
+
+`src/main/llm/chatSession.ts`:
+
+```ts
+import type { ChatMessage } from './types'
+
+export interface ChatSnapshot {
+  system: string
+  messages: ChatMessage[]
+}
+
+export class ChatSession {
+  private messages: ChatMessage[] = []
+  private system: string
+  private readonly maxMessages: number
+
+  constructor(systemPrompt: string, maxTurns = 20) {
+    this.system = systemPrompt
+    this.maxMessages = maxTurns * 2
+  }
+
+  pushUser(content: string): void {
+    this.messages.push({ role: 'user', content })
+    this.trim()
+  }
+
+  pushAssistant(content: string): void {
+    this.messages.push({ role: 'assistant', content })
+    this.trim()
+  }
+
+  setSystemPrompt(prompt: string): void {
+    this.system = prompt
+  }
+
+  clear(): void {
+    this.messages = []
+  }
+
+  snapshot(): ChatSnapshot {
+    return { system: this.system, messages: [...this.messages] }
+  }
+
+  private trim(): void {
+    if (this.messages.length > this.maxMessages) {
+      this.messages = this.messages.slice(this.messages.length - this.maxMessages)
+    }
+  }
+}
+```
+
+- [ ] **Step 4: 跑测试,确认通过**
+
+```bash
+npm test -- chat-session
+```
+
+Expected: PASS,5 个用例。
+
+- [ ] **Step 5: 全部测试 + typecheck**
+
+```bash
+npm test
+npm run typecheck
+```
+
+Expected: 全 PASS。
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add .
+git commit -m "feat: chat session with sliding-window history and system prompt"
+```
+
+---
+
+> **Batch 2 结束。** 已交付 Task 0-5,覆盖项目脚手架、窗口、IPC、穿透、Settings、凭据、LLM provider 工厂、ChatSession。
 >
-> 下一批计划包含:Task 3 Settings 存储 + 凭据加密 / Task 4 LLM provider factory / Task 5 ChatSession。
+> **Batch 3(下一批)将包含:** Task 6 ChatService + chat:* IPC 全链路(用 mock provider 测) / Task 7 Three.js 透明场景 + VRM 加载 / Task 8 MouseLookAt(头部 IK)。
