@@ -1,26 +1,30 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { startPassthroughLoop } from './app/passthrough'
+import { VrmStage } from './scene/VrmStage'
 
 export default function App() {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const stageRef = useRef<VrmStage | null>(null)
+
   useEffect(() => {
-    return startPassthroughLoop((interactive) => {
-      window.api.window.setPassthrough(interactive)
-    })
+    const stop = startPassthroughLoop((i) => window.api.window.setPassthrough(i))
+    return stop
+  }, [])
+
+  useEffect(() => {
+    if (!canvasRef.current) return
+    const stage = new VrmStage(canvasRef.current)
+    stageRef.current = stage
+    stage.loadVrm('./default.vrm').catch((e) => console.error('VRM load failed', e))
+    stage.start()
+    return () => stage.dispose()
   }, [])
 
   return (
     <div className="w-screen h-screen relative">
-      <div
-        data-interactive="true"
-        className="absolute bottom-4 right-4 bg-black/70 text-white p-4 rounded-xl select-none"
-      >
-        <p>Hover me — clicks work here</p>
-        <button
-          className="mt-2 px-3 py-1 bg-red-500 rounded"
-          onClick={() => window.api.window.quit()}
-        >
-          Quit
-        </button>
+      <canvas ref={canvasRef} className="w-full h-full block" style={{ background: 'transparent' }} />
+      <div data-interactive="true" className="absolute top-2 right-2 bg-black/60 text-white text-xs p-2 rounded select-none">
+        <button onClick={() => window.api.window.quit()}>Quit</button>
       </div>
     </div>
   )

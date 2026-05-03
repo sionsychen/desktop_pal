@@ -20,3 +20,8 @@ Thumbs.db
 # Electron / Vite caches
 .electron-vite/
 .vite/
+.claude/settings.local.json
+
+# VRM assets (not committed)
+resources/*.vrm
+src/renderer/public/*.vrm
