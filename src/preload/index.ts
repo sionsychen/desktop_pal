@@ -1,5 +1,10 @@
-import { contextBridge } from 'electron'
+import { contextBridge, ipcRenderer } from 'electron'
+import { Channels } from '@shared/channels'
 
 contextBridge.exposeInMainWorld('api', {
-  ping: () => 'pong',
+  window: {
+    quit: () => ipcRenderer.send(Channels.WindowQuit),
+    moveBy: (dx: number, dy: number) =>
+      ipcRenderer.send(Channels.WindowMove, { dx, dy }),
+  },
 })
