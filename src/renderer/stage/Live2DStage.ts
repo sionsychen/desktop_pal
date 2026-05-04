@@ -49,24 +49,23 @@ export class Live2DStage {
 
   refit(): void {
     if (!this.model) return
-    // 用 canvas 的真实显示尺寸而不是 app.screen,后者在 resizeTo 还没触发时是默认 800x600
-    const vw = this.canvas.clientWidth || this.app.screen.width
-    const vh = this.canvas.clientHeight || this.app.screen.height
+    // canvas.clientWidth 在某些时机返回 pixi 给 canvas 设的 HTML 属性默认值 800x600
+    // 直接用 viewport 尺寸,这是 BrowserWindow 的 content area, 跟实际窗口一致
+    const vw = window.innerWidth
+    const vh = window.innerHeight
 
-    // 同步 renderer 尺寸到 canvas 实际尺寸
+    // 同步 canvas + renderer 到真实尺寸
+    this.canvas.style.width = vw + 'px'
+    this.canvas.style.height = vh + 'px'
     this.app.renderer.resize(vw, vh)
 
-    // 重置 transform,先用 scale=1 拿干净的本地 bounds
     this.model.scale.set(1)
     this.model.position.set(0, 0)
     this.model.pivot.set(0, 0)
     const bounds = this.model.getLocalBounds()
 
-    // 按窗口高度的 92% 缩放(留 4% 上下边距)
     const scale = (vh * 0.92) / bounds.height
     this.model.scale.set(scale)
-
-    // 把 bbox 中心点对齐到窗口中心
     this.model.x = vw / 2 - (bounds.x + bounds.width / 2) * scale
     this.model.y = vh / 2 - (bounds.y + bounds.height / 2) * scale
   }
