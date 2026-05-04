@@ -21,13 +21,15 @@ export class Live2DStage {
   }
 
   async loadModel(modelUrl: string): Promise<Live2DModel> {
-    const model = await Live2DModel.from(modelUrl)
-    // 若 dispose() 在加载期间已经跑过,app.stage 会被清空,直接销毁孤儿模型
+    const model = await Live2DModel.from(modelUrl, {
+      // pixi-live2d-display@0.4 的 auto-interact 依赖 pixi v6 的 InteractionManager,
+      // 在 pixi v7 会抛 'manager.on is not a function'。我们用自己的 CursorTracker
+      autoInteract: false,
+    })
     if (!this.app.stage) {
       model.destroy?.()
       throw new Error('Live2DStage disposed before model loaded')
     }
-    // 跨 pixi 版本类型不一致,这里强转
     this.app.stage.addChild(model as unknown as PIXI.DisplayObject)
     this.model = model
     this.refit()

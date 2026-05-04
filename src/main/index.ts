@@ -22,6 +22,16 @@ app.whenReady().then(async () => {
   } else {
     await win.loadFile(join(__dirname, '../renderer/index.html'))
   }
+
+  if (!app.isPackaged) {
+    win.webContents.openDevTools({ mode: 'detach' })
+    win.webContents.on('console-message', (_e, level, message, line, source) => {
+      console.log(`[renderer ${level}] ${message} (${source}:${line})`)
+    })
+    win.webContents.on('render-process-gone', (_e, details) => {
+      console.error('[renderer gone]', details)
+    })
+  }
 })
 
 app.on('window-all-closed', () => {

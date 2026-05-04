@@ -28,7 +28,7 @@ export default function App() {
     let triggerRef: ((text: string) => void) | null = null
     ;(async () => {
       try {
-        const model = await stage.loadModel('./model/tororo/index.json')
+        const model = await stage.loadModel('./model/tororo/tororo.model.json')
         if (cancelled) { stage.model?.destroy?.(); return }
         tracker = new CursorTracker(model, canvasRef.current!)
         const player: MotionPlayer = {
@@ -52,6 +52,8 @@ export default function App() {
         motion.start()
         const onTick = () => {
           try {
+            // Live2DModel.registerTicker 在 pixi v7 下没自动挂上, 手动驱动
+            ;(model as unknown as { update(dt: number): void }).update(stage.app.ticker.deltaMS)
             motion.update(stage.app.ticker.deltaMS / 1000)
           } catch (e) {
             console.error('motion.update threw', e)
