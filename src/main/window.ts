@@ -4,12 +4,15 @@ const { BrowserWindow: BrowserWindowCtor, screen } = electron
 
 export interface RestoreBounds { x: number; y: number; width: number; height: number }
 
-export function buildWindowOptions(preloadPath: string, bounds?: RestoreBounds): BrowserWindowConstructorOptions {
+export const DEFAULT_WIDTH = 240
+export const DEFAULT_HEIGHT = 360
+
+export function buildWindowOptions(preloadPath: string, bounds?: { x?: number; y?: number }): BrowserWindowConstructorOptions {
   return {
     x: bounds?.x,
     y: bounds?.y,
-    width: bounds?.width ?? 280,
-    height: bounds?.height ?? 420,
+    width: DEFAULT_WIDTH,
+    height: DEFAULT_HEIGHT,
     transparent: true,
     frame: false,
     alwaysOnTop: true,
@@ -35,14 +38,18 @@ function isVisibleOnAnyDisplay(b: RestoreBounds): boolean {
 }
 
 export function createPetWindow(preloadPath: string, restored?: RestoreBounds): BrowserWindow {
-  const useRestored = restored && isVisibleOnAnyDisplay(restored)
-  const win = new BrowserWindowCtor(buildWindowOptions(preloadPath, useRestored ? restored : undefined))
+  // 只恢复 x/y, 不恢复尺寸 (resizable=false 用户改不了, 旧记录的 size 反而锁死)
+  const useRestoredPos = restored && isVisibleOnAnyDisplay(restored)
+  const win = new BrowserWindowCtor(buildWindowOptions(
+    preloadPath,
+    useRestoredPos ? { x: restored.x, y: restored.y } : undefined,
+  ))
   win.setAlwaysOnTop(true, 'screen-saver')
-  if (!useRestored) {
+  if (!useRestoredPos) {
     // 首次启动放右下角
     const display = screen.getPrimaryDisplay()
     const { width, height } = display.workAreaSize
-    win.setPosition(width - 300, height - 440)
+    win.setPosition(width - DEFAULT_WIDTH - 20, height - DEFAULT_HEIGHT - 20)
   }
   return win
 }
