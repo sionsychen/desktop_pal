@@ -7,9 +7,11 @@ Live2DModel.registerTicker(PIXI.Ticker as unknown as Parameters<typeof Live2DMod
 
 export class Live2DStage {
   readonly app: PIXI.Application
+  readonly canvas: HTMLCanvasElement
   model: Live2DModel | null = null
 
   constructor(canvas: HTMLCanvasElement) {
+    this.canvas = canvas
     this.app = new PIXI.Application({
       view: canvas,
       backgroundAlpha: 0,
@@ -18,6 +20,15 @@ export class Live2DStage {
       resolution: window.devicePixelRatio,
       resizeTo: canvas,
     })
+    // 关掉 stage 的 pixi 事件监听; Live2DModel 不是标准 DisplayObject,
+    // 会让 pixi v7 的 EventBoundary 调 isInteractive() 时炸
+    this.app.stage.eventMode = 'none'
+    this.app.stage.interactiveChildren = false
+    window.addEventListener('resize', this.onWindowResize)
+  }
+
+  private onWindowResize = (): void => {
+    this.refit()
   }
 
   async loadModel(modelUrl: string): Promise<Live2DModel> {
@@ -38,7 +49,12 @@ export class Live2DStage {
 
   refit(): void {
     if (!this.model) return
-    const { width: vw, height: vh } = this.app.screen
+    // 用 canvas 的真实显示尺寸而不是 app.screen,后者在 resizeTo 还没触发时是默认 800x600
+    const vw = this.canvas.clientWidth || this.app.screen.width
+    const vh = this.canvas.clientHeight || this.app.screen.height
+
+    // 同步 renderer 尺寸到 canvas 实际尺寸
+    this.app.renderer.resize(vw, vh)
 
     // 重置 transform,先用 scale=1 拿干净的本地 bounds
     this.model.scale.set(1)
@@ -56,6 +72,7 @@ export class Live2DStage {
   }
 
   dispose(): void {
+    window.removeEventListener('resize', this.onWindowResize)
     // texture/baseTexture 保留:Cubism 运行时全局缓存了贴图,销毁会让后续 loadModel 拿不到资源
     this.app.destroy(false, { children: true, texture: false, baseTexture: false })
     this.model = null
