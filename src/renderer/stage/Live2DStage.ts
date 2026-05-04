@@ -22,31 +22,38 @@ export class Live2DStage {
 
   async loadModel(modelUrl: string): Promise<Live2DModel> {
     const model = await Live2DModel.from(modelUrl)
+    // 若 dispose() 在加载期间已经跑过,app.stage 会被清空,直接销毁孤儿模型
+    if (!this.app.stage) {
+      model.destroy?.()
+      throw new Error('Live2DStage disposed before model loaded')
+    }
     // 跨 pixi 版本类型不一致,这里强转
     this.app.stage.addChild(model as unknown as PIXI.DisplayObject)
-    this.fitModel(model)
     this.model = model
+    this.refit()
     return model
   }
 
-  private fitModel(model: Live2DModel): void {
+  refit(): void {
+    if (!this.model) return
     const { width, height } = this.app.screen
     // 95% 视口高度适配
     const targetHeight = height * 0.95
-    const scale = targetHeight / model.height
-    model.scale.set(scale)
+    const scale = targetHeight / this.model.height
+    this.model.scale.set(scale)
     // 居中
-    model.x = width / 2
-    model.y = height / 2
+    this.model.x = width / 2
+    this.model.y = height / 2
     // anchor / pivot 居中,best-effort
-    if ((model as unknown as { anchor?: { set(x: number, y: number): void } }).anchor) {
-      ;(model as unknown as { anchor: { set(x: number, y: number): void } }).anchor.set(0.5, 0.5)
+    if ((this.model as unknown as { anchor?: { set(x: number, y: number): void } }).anchor) {
+      ;(this.model as unknown as { anchor: { set(x: number, y: number): void } }).anchor.set(0.5, 0.5)
     } else {
-      model.pivot.set(model.width / (2 * scale), model.height / (2 * scale))
+      this.model.pivot.set(this.model.width / (2 * scale), this.model.height / (2 * scale))
     }
   }
 
   dispose(): void {
+    // texture/baseTexture 保留:Cubism 运行时全局缓存了贴图,销毁会让后续 loadModel 拿不到资源
     this.app.destroy(false, { children: true, texture: false, baseTexture: false })
     this.model = null
   }

@@ -18,18 +18,20 @@ export default function App() {
   useEffect(() => {
     if (!canvasRef.current) return
     const stage = new Live2DStage(canvasRef.current)
+    let cancelled = false
     ;(async () => {
       try {
         await stage.loadModel('./model/tororo/index.json')
+        if (cancelled) stage.model?.destroy?.()
       } catch (e) {
-        console.error('Live2D model load failed', e)
+        if (!cancelled) console.error('Live2D model load failed', e)
       }
     })()
     const detachDrag = attachDrag(canvasRef.current, {
       onMove: (dx, dy) => window.api.window.moveBy(dx, dy),
       onClick: () => { /* drag-to-move only */ },
     })
-    return () => { detachDrag(); stage.dispose() }
+    return () => { cancelled = true; detachDrag(); stage.dispose() }
   }, [])
 
   return (
