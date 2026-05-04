@@ -1,6 +1,5 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@source "../**/*.{ts,tsx,html}";
 
 html, body, #root {
   width: 100%;
