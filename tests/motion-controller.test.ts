@@ -68,4 +68,20 @@ describe('MotionController', () => {
     c.update(5)
     expect(player.calls).toEqual([])
   })
+
+  it('watchdog fires after maxReactionSec to resume idle', () => {
+    const c = new MotionController(player, {
+      idleGroup: 'idle', tapGroup: 'tap_body', tapCount: 8,
+      maxReactionSec: 1,
+    })
+    c.start()
+    player.calls.length = 0
+    c.playReaction({ group: 'tap_body', index: 3 })
+    // before watchdog, no idle resume
+    c.update(0.5)
+    expect(player.calls.map((x: any) => x[0])).toEqual(['tap_body'])
+    // after watchdog
+    c.update(1.0) // total 1.5s > 1
+    expect(player.calls[player.calls.length - 1][0]).toBe('idle')
+  })
 })

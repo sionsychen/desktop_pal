@@ -42,14 +42,21 @@ export default function App() {
             return () => mgr.off('motionFinish', handler)
           },
         }
+        if (cancelled) { stage.model?.destroy?.(); return }
         const motion = new MotionController(player, {
           idleGroup: 'idle', tapGroup: 'tap_body', tapCount: 8,
         })
-        motion.start()
-        const onTick = () => motion.update(stage.app.ticker.deltaMS / 1000)
-        stage.app.ticker.add(onTick)
         motionRef = motion
+        motion.start()
+        const onTick = () => {
+          try {
+            motion.update(stage.app.ticker.deltaMS / 1000)
+          } catch (e) {
+            console.error('motion.update threw', e)
+          }
+        }
         tickRef = onTick
+        stage.app.ticker.add(onTick)
       } catch (e) {
         if (!cancelled) console.error('Live2D model load failed', e)
       }
