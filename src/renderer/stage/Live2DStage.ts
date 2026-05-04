@@ -38,20 +38,21 @@ export class Live2DStage {
 
   refit(): void {
     if (!this.model) return
-    const { width, height } = this.app.screen
-    // 95% 视口高度适配
-    const targetHeight = height * 0.95
-    const scale = targetHeight / this.model.height
+    const { width: vw, height: vh } = this.app.screen
+
+    // 重置 transform,先用 scale=1 拿干净的本地 bounds
+    this.model.scale.set(1)
+    this.model.position.set(0, 0)
+    this.model.pivot.set(0, 0)
+    const bounds = this.model.getLocalBounds()
+
+    // 按窗口高度的 92% 缩放(留 4% 上下边距)
+    const scale = (vh * 0.92) / bounds.height
     this.model.scale.set(scale)
-    // 居中
-    this.model.x = width / 2
-    this.model.y = height / 2
-    // anchor / pivot 居中,best-effort
-    if ((this.model as unknown as { anchor?: { set(x: number, y: number): void } }).anchor) {
-      ;(this.model as unknown as { anchor: { set(x: number, y: number): void } }).anchor.set(0.5, 0.5)
-    } else {
-      this.model.pivot.set(this.model.width / (2 * scale), this.model.height / (2 * scale))
-    }
+
+    // 把 bbox 中心点对齐到窗口中心
+    this.model.x = vw / 2 - (bounds.x + bounds.width / 2) * scale
+    this.model.y = vh / 2 - (bounds.y + bounds.height / 2) * scale
   }
 
   dispose(): void {
