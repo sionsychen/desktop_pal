@@ -17,8 +17,13 @@ describe('clientToStage', () => {
     expect(clientToStage(rect, 140, 210)).toEqual({ x: 140, y: 210 })
   })
 
-  it('returns negative values when client point is above-left of rect', () => {
+  it('returns negative asymmetric values when client point is above-left of rect', () => {
     const rect = { left: 100, top: 50, width: 280, height: 420 } as DOMRect
     expect(clientToStage(rect, 80, 30)).toEqual({ x: -20, y: -20 })
+  })
+
+  it('catches x/y swap with asymmetric deltas', () => {
+    const rect = { left: 10, top: 20, width: 280, height: 420 } as DOMRect
+    expect(clientToStage(rect, 50, 30)).toEqual({ x: 40, y: 10 })
   })
 })

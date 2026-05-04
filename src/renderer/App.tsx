@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { startPassthroughLoop } from './app/passthrough'
 import { Live2DStage } from './stage/Live2DStage'
+import { CursorTracker } from './stage/CursorTracker'
 import { attachDrag } from './app/DragController'
 import { ContextMenu } from './app/ContextMenu'
 import { useChatStream } from './chat/useChatStream'
@@ -24,7 +25,6 @@ export default function App() {
       try {
         const model = await stage.loadModel('./model/tororo/index.json')
         if (cancelled) { stage.model?.destroy?.(); return }
-        const { CursorTracker } = await import('./stage/CursorTracker')
         tracker = new CursorTracker(model, canvasRef.current!)
       } catch (e) {
         if (!cancelled) console.error('Live2D model load failed', e)
