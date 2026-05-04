@@ -22,6 +22,8 @@
     "@pixiv/three-vrm-animation": "^3.5.2",
     "ai": "^6.0.174",
     "electron": "^41.5.0",
+    "pixi-live2d-display": "^0.4.0",
+    "pixi.js": "^7.4.3",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "three": "^0.184.0",

@@ -26,3 +26,9 @@ Thumbs.db
 resources/*.vrm
 src/renderer/public/*.vrm
 src/renderer/public/anim/*.vrma
+
+# Live2D runtimes (Cubism Core JS — Live2D Inc. proprietary, do not redistribute via git)
+src/renderer/public/cubism/*.js
+
+# Live2D models (third-party sample assets)
+src/renderer/public/model/**
