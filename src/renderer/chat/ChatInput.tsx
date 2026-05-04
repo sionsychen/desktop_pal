@@ -1,10 +1,18 @@
-import { useState, type KeyboardEvent } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 
 interface Props { disabled?: boolean; onSubmit: (text: string) => void }
 
 export function ChatInput({ disabled, onSubmit }: Props) {
   const [v, setV] = useState('')
   const [focused, setFocused] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  // 全局快捷键召唤窗口时,聚焦输入框
+  useEffect(() => {
+    const off = window.api.chat.onFocusInput(() => inputRef.current?.focus())
+    return off
+  }, [])
+
   const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && v.trim() && !disabled) {
       onSubmit(v.trim())
@@ -39,6 +47,7 @@ export function ChatInput({ disabled, onSubmit }: Props) {
         ★
       </span>
       <input
+        ref={inputRef}
         className="flex-1 min-w-0 bg-transparent outline-none text-sm"
         style={{
           color: '#5b3a52',

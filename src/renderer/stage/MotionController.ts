@@ -7,7 +7,9 @@ export interface MotionControllerOptions {
   idleGroup: string
   tapGroup: string
   tapCount: number
-  minSwitchSec?: number
+  /** 闲置循环触发 tap 动作的时间下界,秒。null/0 = 不自动触发(只在 chat reaction 时播 tap) */
+  minSwitchSec?: number | null
+  /** 闲置循环触发 tap 动作的时间上界,秒 */
   maxSwitchSec?: number
   maxReactionSec?: number
 }
@@ -18,7 +20,7 @@ export class MotionController {
   private readonly idleGroup: string
   private readonly tapGroup: string
   private readonly tapCount: number
-  private readonly minSec: number
+  private readonly minSec: number | null
   private readonly maxSec: number
   private readonly maxReactionSec: number
 
@@ -35,7 +37,7 @@ export class MotionController {
     this.idleGroup = opts.idleGroup
     this.tapGroup = opts.tapGroup
     this.tapCount = opts.tapCount
-    this.minSec = opts.minSwitchSec ?? 6
+    this.minSec = opts.minSwitchSec === undefined ? 6 : opts.minSwitchSec
     this.maxSec = opts.maxSwitchSec ?? 12
     this.maxReactionSec = opts.maxReactionSec ?? 10
   }
@@ -63,6 +65,8 @@ export class MotionController {
       }
       return
     }
+    // minSec=null 表示禁用 idle 期间的自动 tap 循环
+    if (this.minSec === null || this.minSec <= 0) return
     this.timer += dt
     if (this.timer < this.nextSwitchAt) return
     const idx = Math.floor(Math.random() * this.tapCount)
@@ -82,6 +86,7 @@ export class MotionController {
   }
 
   private scheduleNext(): void {
+    if (this.minSec === null || this.minSec <= 0) return
     this.timer = 0
     this.nextSwitchAt = this.minSec + Math.random() * (this.maxSec - this.minSec)
   }

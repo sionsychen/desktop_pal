@@ -8,19 +8,35 @@ import { ChatService } from './llm/chatService'
 import { createLanguageModel } from './llm/providerFactory'
 import { SettingsStore } from './settings/store'
 import { CredentialsStore } from './settings/credentials'
+import { ChatHistoryStore } from './settings/chatHistory'
 
-export function registerIpc(win: BrowserWindow, userDataDir: string): void {
+export function registerIpc(win: BrowserWindow, userDataDir: string): { clearChatHistory: () => void } {
   const settingsStore = new SettingsStore(userDataDir)
   const credentialsStore = new CredentialsStore(userDataDir)
+  const historyStore = new ChatHistoryStore(userDataDir)
 
   let settings = settingsStore.load()
   const session = new ChatSession(settings.systemPrompt, 20)
+  session.hydrate(historyStore.load())
   let activeAbort: AbortController | null = null
 
-  const service = new ChatService(session, () => {
-    const creds = credentialsStore.load()
-    return createLanguageModel(settings, creds)
-  })
+  const service = new ChatService(
+    session,
+    () => {
+      const creds = credentialsStore.load()
+      return createLanguageModel(settings, creds)
+    },
+    () => ({ temperature: settings.temperature, maxTokens: settings.maxTokens }),
+  )
+
+  // 每次 done/error 后落盘历史 (debounced)
+  let historySaveTimer: NodeJS.Timeout | null = null
+  const persistHistory = () => {
+    if (historySaveTimer) clearTimeout(historySaveTimer)
+    historySaveTimer = setTimeout(() => {
+      historyStore.save(session.snapshot().messages)
+    }, 300)
+  }
 
   ipcMain.on(Channels.WindowQuit, () => app.quit())
 
@@ -39,8 +55,14 @@ export function registerIpc(win: BrowserWindow, userDataDir: string): void {
     try {
       for await (const ev of service.send(payload.text, ac.signal)) {
         if (ev.type === 'delta') win.webContents.send(Channels.ChatDelta, { text: ev.text })
-        else if (ev.type === 'done') win.webContents.send(Channels.ChatDone, { fullText: ev.fullText })
-        else if (ev.type === 'error') win.webContents.send(Channels.ChatError, { message: ev.message })
+        else if (ev.type === 'done') {
+          win.webContents.send(Channels.ChatDone, { fullText: ev.fullText })
+          persistHistory()
+        }
+        else if (ev.type === 'error') {
+          win.webContents.send(Channels.ChatError, { message: ev.message })
+          persistHistory()
+        }
       }
     } finally {
       if (activeAbort === ac) activeAbort = null
@@ -67,4 +89,11 @@ export function registerIpc(win: BrowserWindow, userDataDir: string): void {
     credentialsStore.save(creds)
     session.setSystemPrompt(settings.systemPrompt)
   })
+
+  return {
+    clearChatHistory: () => {
+      session.clear()
+      historyStore.clear()
+    },
+  }
 }

@@ -6,10 +6,11 @@ describe('useChatStream', () => {
   let deltaCb: ((t: string) => void) | null = null
   let doneCb: ((t: string) => void) | null = null
   let errCb: ((m: string) => void) | null = null
+  let clearedCb: (() => void) | null = null
   let sentText: string | null = null
 
   beforeEach(() => {
-    deltaCb = null; doneCb = null; errCb = null; sentText = null
+    deltaCb = null; doneCb = null; errCb = null; clearedCb = null; sentText = null
     ;(globalThis as any).window.api = {
       chat: {
         send: (text: string) => { sentText = text },
@@ -17,6 +18,8 @@ describe('useChatStream', () => {
         onDelta: (cb: any) => { deltaCb = cb; return () => { deltaCb = null } },
         onDone: (cb: any) => { doneCb = cb; return () => { doneCb = null } },
         onError: (cb: any) => { errCb = cb; return () => { errCb = null } },
+        onFocusInput: (_cb: any) => () => { /* noop */ },
+        onCleared: (cb: any) => { clearedCb = cb; return () => { clearedCb = null } },
       },
     }
   })
@@ -38,6 +41,17 @@ describe('useChatStream', () => {
     act(() => { result.current.send('x') })
     act(() => { errCb?.('boom') })
     expect(result.current.error).toBe('boom')
+    expect(result.current.streaming).toBe(false)
+  })
+
+  it('clears state when chat:cleared fires', () => {
+    const { result } = renderHook(() => useChatStream())
+    act(() => { result.current.send('x') })
+    act(() => { deltaCb?.('hi'); errCb?.('err') })
+    expect(result.current.text).toBe('hi')
+    act(() => { clearedCb?.() })
+    expect(result.current.text).toBe('')
+    expect(result.current.error).toBeNull()
     expect(result.current.streaming).toBe(false)
   })
 })

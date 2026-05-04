@@ -4,7 +4,7 @@ directories:
   output: release
   buildResources: resources
 files:
-  - out/**/*
+  - out/**/*    # vite 已经把 src/renderer/public/{cubism,model} 拷到 out/renderer/, 走这条规则一并打包
   - resources/tray.png
   - package.json
 extraResources:

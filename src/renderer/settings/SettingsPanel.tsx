@@ -118,6 +118,40 @@ export function SettingsPanel({ open, onClose }: Props) {
           />
         </label>
 
+        <div className="grid grid-cols-2 gap-2">
+          <label className="block text-sm">
+            Temperature
+            <input
+              type="number"
+              step="0.1"
+              min="0"
+              max="2"
+              className="mt-1 w-full bg-neutral-800 rounded px-2 py-1"
+              placeholder="default"
+              value={settings.temperature ?? ''}
+              onChange={(e) => {
+                const raw = e.target.value
+                upd({ temperature: raw === '' ? undefined : Number(raw) })
+              }}
+            />
+          </label>
+          <label className="block text-sm">
+            Max tokens
+            <input
+              type="number"
+              step="64"
+              min="1"
+              className="mt-1 w-full bg-neutral-800 rounded px-2 py-1"
+              placeholder="default"
+              value={settings.maxTokens ?? ''}
+              onChange={(e) => {
+                const raw = e.target.value
+                upd({ maxTokens: raw === '' ? undefined : Number(raw) })
+              }}
+            />
+          </label>
+        </div>
+
         <div className="flex justify-end gap-2 pt-2">
           <button
             className="px-3 py-1 bg-neutral-700 rounded"

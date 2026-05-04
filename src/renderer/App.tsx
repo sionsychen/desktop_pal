@@ -13,14 +13,21 @@ import { SettingsPanel } from './settings/SettingsPanel'
 
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const stageRef = useRef<Live2DStage | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const chat = useChatStream()
 
-  useEffect(() => startPassthroughLoop((i) => window.api.window.setPassthrough(i)), [])
+  useEffect(() =>
+    startPassthroughLoop(
+      (i) => window.api.window.setPassthrough(i),
+      { extraHit: (x, y) => stageRef.current?.containsPoint(x, y) ?? false },
+    ),
+  [])
 
   useEffect(() => {
     if (!canvasRef.current) return
     const stage = new Live2DStage(canvasRef.current)
+    stageRef.current = stage
     let cancelled = false
     let tracker: { dispose(): void } | null = null
     let motionRef: { dispose(): void } | null = null
@@ -47,12 +54,12 @@ export default function App() {
         if (cancelled) { stage.model?.destroy?.(); return }
         const motion = new MotionController(player, {
           idleGroup: 'idle', tapGroup: 'tap_body', tapCount: 8,
+          minSwitchSec: null,  // idle 自然 loop, 不在闲置时随机 tap; tap 只在 chat reaction 时触发
         })
         motionRef = motion
         motion.start()
         const onTick = () => {
           try {
-            // Live2DModel.registerTicker 在 pixi v7 下没自动挂上, 手动驱动
             ;(model as unknown as { update(dt: number): void }).update(stage.app.ticker.deltaMS)
             motion.update(stage.app.ticker.deltaMS / 1000)
           } catch (e) {
@@ -82,6 +89,7 @@ export default function App() {
       if (tickRef) stage.app.ticker.remove(tickRef)
       detachDrag()
       stage.dispose()
+      stageRef.current = null
       ;(window as unknown as { __triggerMotion?: (t: string) => void }).__triggerMotion = undefined
       triggerRef = null
     }
@@ -98,9 +106,8 @@ export default function App() {
     <div className="w-screen h-screen relative">
       <canvas
         ref={canvasRef}
-        data-interactive="true"
         className="w-full h-full block"
-        style={{ background: 'transparent' }}
+        style={{ background: 'transparent', cursor: 'grab' }}
       />
       <ChatBubble text={chat.text} streaming={chat.streaming} error={chat.error} />
       <div data-interactive="true" className="absolute bottom-2 left-2 right-2">

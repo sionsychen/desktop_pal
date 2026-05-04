@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { createLanguageModel } from '../src/main/llm/providerFactory'
+import { createLanguageModel, normalizeAnthropicBaseURL } from '../src/main/llm/providerFactory'
 import type { Settings } from '../src/main/llm/types'
 
 const baseSettings: Settings = {
@@ -32,5 +32,28 @@ describe('createLanguageModel', () => {
     }
     expect(() => createLanguageModel(settings, { anthropic: '', openai: 'sk' }))
       .toThrow(/baseURL/i)
+  })
+})
+
+describe('normalizeAnthropicBaseURL', () => {
+  it('appends /v1 when missing', () => {
+    expect(normalizeAnthropicBaseURL('https://tc-paperhub.diezhi.net/anthropic'))
+      .toBe('https://tc-paperhub.diezhi.net/anthropic/v1')
+  })
+  it('keeps /v1 when already present', () => {
+    expect(normalizeAnthropicBaseURL('https://api.anthropic.com/v1'))
+      .toBe('https://api.anthropic.com/v1')
+  })
+  it('keeps versioned suffixes other than v1', () => {
+    expect(normalizeAnthropicBaseURL('https://x.test/v2')).toBe('https://x.test/v2')
+  })
+  it('strips trailing slash before checking', () => {
+    expect(normalizeAnthropicBaseURL('https://x.test/anthropic/'))
+      .toBe('https://x.test/anthropic/v1')
+    expect(normalizeAnthropicBaseURL('https://x.test/v1/'))
+      .toBe('https://x.test/v1')
+  })
+  it('returns empty for empty input', () => {
+    expect(normalizeAnthropicBaseURL('')).toBe('')
   })
 })

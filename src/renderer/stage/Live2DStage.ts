@@ -64,10 +64,24 @@ export class Live2DStage {
     this.model.pivot.set(0, 0)
     const bounds = this.model.getLocalBounds()
 
-    const scale = (vh * 0.92) / bounds.height
+    // 同时按宽和高约束,取小的那个 → 整个 bbox 进窗口,不截断
+    const scaleByH = (vh * 0.92) / bounds.height
+    const scaleByW = (vw * 0.92) / bounds.width
+    const scale = Math.min(scaleByH, scaleByW)
     this.model.scale.set(scale)
     this.model.x = vw / 2 - (bounds.x + bounds.width / 2) * scale
     this.model.y = vh / 2 - (bounds.y + bounds.height / 2) * scale
+  }
+
+  /** 用模型 bounding box 做 screen-space 命中测试。Tororo 的 bbox ≈ 80% 拟合身形,
+   * 对桌宠场景够用; 真像素 alpha 测试代价更高,留作未来优化 */
+  containsPoint(clientX: number, clientY: number): boolean {
+    if (!this.model) return false
+    const rect = this.canvas.getBoundingClientRect()
+    const localX = clientX - rect.left
+    const localY = clientY - rect.top
+    const b = this.model.getBounds()
+    return localX >= b.x && localX <= b.x + b.width && localY >= b.y && localY <= b.y + b.height
   }
 
   dispose(): void {

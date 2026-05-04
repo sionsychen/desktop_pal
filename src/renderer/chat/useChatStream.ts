@@ -19,7 +19,10 @@ export function useChatStream(): ChatStreamApi {
     const offDelta = window.api.chat.onDelta((t) => setText((p) => p + t))
     const offDone = window.api.chat.onDone(() => setStreaming(false))
     const offErr = window.api.chat.onError((m) => { setError(m); setStreaming(false) })
-    offRef.current = [offDelta, offDone, offErr]
+    const offCleared = window.api.chat.onCleared(() => {
+      setText(''); setError(null); setStreaming(false)
+    })
+    offRef.current = [offDelta, offDone, offErr, offCleared]
     return () => offRef.current.forEach((fn) => fn())
   }, [])
 

@@ -29,6 +29,16 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.on(Channels.ChatError, h)
       return () => ipcRenderer.off(Channels.ChatError, h)
     },
+    onFocusInput: (cb: () => void) => {
+      const h = () => cb()
+      ipcRenderer.on('chat:focus-input', h)
+      return () => ipcRenderer.off('chat:focus-input', h)
+    },
+    onCleared: (cb: () => void) => {
+      const h = () => cb()
+      ipcRenderer.on('chat:cleared', h)
+      return () => ipcRenderer.off('chat:cleared', h)
+    },
   },
   settings: {
     get: () => ipcRenderer.invoke(Channels.SettingsGet),

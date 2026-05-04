@@ -16,6 +16,8 @@ declare global {
         onDelta: (cb: (text: string) => void) => () => void
         onDone: (cb: (fullText: string) => void) => () => void
         onError: (cb: (msg: string) => void) => () => void
+        onFocusInput: (cb: () => void) => () => void
+        onCleared: (cb: () => void) => () => void
       }
       settings: {
         get: () => Promise<{ settings: Settings; hasAnthropic: boolean; hasOpenAI: boolean }>
