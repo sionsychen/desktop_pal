@@ -54,7 +54,8 @@ export default function App() {
         if (cancelled) { stage.model?.destroy?.(); return }
         const motion = new MotionController(player, {
           idleGroup: 'idle', tapGroup: 'tap_body', tapCount: 8,
-          minSwitchSec: null,  // idle 自然 loop, 不在闲置时随机 tap; tap 只在 chat reaction 时触发
+          // idle 期间 30-90s 偶尔来一个 tap, 制造"猫咪自己在玩/伸懒腰"感
+          minSwitchSec: 30, maxSwitchSec: 90,
         })
         motionRef = motion
         motion.start()
