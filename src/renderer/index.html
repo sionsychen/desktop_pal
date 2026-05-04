@@ -7,8 +7,9 @@
   </head>
   <body class="bg-transparent">
     <div id="root"></div>
-    <script src="./cubism/live2d.min.js"></script>
+    <!-- Cubism runtimes must load as classic scripts before the module bundle (pixi-live2d-display reads window.Live2D / window.Live2DCubismCore at first use) -->
     <script src="./cubism/live2dcubismcore.min.js"></script>
+    <script src="./cubism/live2d.min.js"></script>
     <script type="module" src="./main.tsx"></script>
   </body>
 </html>
