@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { startPassthroughLoop } from './app/passthrough'
-import { VrmStage } from './scene/VrmStage'
+import { Live2DStage } from './stage/Live2DStage'
 import { attachDrag } from './app/DragController'
 import { ContextMenu } from './app/ContextMenu'
 import { useChatStream } from './chat/useChatStream'
@@ -17,39 +17,19 @@ export default function App() {
 
   useEffect(() => {
     if (!canvasRef.current) return
-    const stage = new VrmStage(canvasRef.current)
-    stage.start()
+    const stage = new Live2DStage(canvasRef.current)
     ;(async () => {
-      const vrm = await stage.loadVrm('./default.vrm').catch((e) => { console.error(e); return null })
-      if (!vrm) return
-      const { IdleController } = await import('./scene/IdleController')
-      const idle = new IdleController(vrm)
-      const lookAt = new (await import('./scene/MouseLookAt')).MouseLookAt(
-        vrm, stage.camera, stage.renderer.domElement,
-      )
-      // animation mixer must update BEFORE lookAt so head IK overrides idle head bone
-      stage.addUpdater((dt) => idle.update(dt))
-      stage.addUpdater((dt) => lookAt.update(dt))
-      const { ExpressionController, detectExpression } = await import('./scene/ExpressionController')
-      const expr = new ExpressionController(vrm)
-      stage.addUpdater((dt) => expr.update(dt))
-      ;(window as any).__triggerExpr = (t: string) => {
-        expr.trigger(t)
-        idle.playReaction(IdleController.reactionFor(detectExpression(t)))
+      try {
+        await stage.loadModel('./model/tororo/index.json')
+      } catch (e) {
+        console.error('Live2D model load failed', e)
       }
     })()
     const detachDrag = attachDrag(canvasRef.current, {
       onMove: (dx, dy) => window.api.window.moveBy(dx, dy),
-      onClick: () => { /* drag-to-move only; input is always visible */ },
+      onClick: () => { /* drag-to-move only */ },
     })
     return () => { detachDrag(); stage.dispose() }
-  }, [])
-
-  useEffect(() => {
-    const off = window.api.chat.onDone((fullText) => {
-      ;(window as any).__triggerExpr?.(fullText)
-    })
-    return off
   }, [])
 
   return (
@@ -61,14 +41,8 @@ export default function App() {
         style={{ background: 'transparent' }}
       />
       <ChatBubble text={chat.text} streaming={chat.streaming} error={chat.error} />
-      <div
-        data-interactive="true"
-        className="absolute bottom-2 left-2 right-2"
-      >
-        <ChatInput
-          disabled={chat.streaming}
-          onSubmit={(t) => chat.send(t)}
-        />
+      <div data-interactive="true" className="absolute bottom-2 left-2 right-2">
+        <ChatInput disabled={chat.streaming} onSubmit={(t) => chat.send(t)} />
       </div>
       <ContextMenu items={[
         { label: 'Settings...', onClick: () => setSettingsOpen(true) },
