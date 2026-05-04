@@ -1,3 +1,5 @@
+import type { MotionRef } from './MotionController'
+
 export type Expression = 'happy' | 'surprised' | 'thinking' | 'sad' | 'neutral'
 
 const RULES: Array<{ kind: Expression; needles: string[] }> = [
@@ -14,4 +16,11 @@ export function detectExpression(text: string): Expression {
     if (r.needles.some((n) => lower.includes(n.toLowerCase()))) return r.kind
   }
   return 'neutral'
+}
+
+export function mapToMotion(expr: Expression, tapCount: number): MotionRef | null {
+  if (expr === 'neutral') return null
+  // Tororo 资产没有按情感区分的 motion, 全部反应都从 tap_body 池里随机
+  const index = Math.floor(Math.random() * tapCount)
+  return { group: 'tap_body', index }
 }

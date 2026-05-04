@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { detectExpression } from '../src/renderer/scene/ExpressionController'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { detectExpression, mapToMotion } from '../src/renderer/stage/motionMapper'
 
 describe('detectExpression', () => {
   it('returns happy for laugh keywords', () => {
@@ -30,5 +30,26 @@ describe('detectExpression', () => {
 
   it('happy beats thinking when both keywords appear', () => {
     expect(detectExpression('让我想想... 哈哈想到了')).toBe('happy')
+  })
+})
+
+describe('mapToMotion', () => {
+  beforeEach(() => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.4)
+  })
+
+  it('returns null for neutral', () => {
+    expect(mapToMotion('neutral', 8)).toBeNull()
+  })
+
+  it('returns a tap_body MotionRef for happy', () => {
+    const r = mapToMotion('happy', 8)
+    expect(r).toEqual({ group: 'tap_body', index: 3 }) // floor(0.4 * 8) = 3
+  })
+
+  it('returns a tap_body MotionRef for surprised, sad, thinking', () => {
+    expect(mapToMotion('surprised', 8)?.group).toBe('tap_body')
+    expect(mapToMotion('sad', 8)?.group).toBe('tap_body')
+    expect(mapToMotion('thinking', 8)?.group).toBe('tap_body')
   })
 })

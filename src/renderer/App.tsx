@@ -3,6 +3,7 @@ import { startPassthroughLoop } from './app/passthrough'
 import { Live2DStage } from './stage/Live2DStage'
 import { CursorTracker } from './stage/CursorTracker'
 import { MotionController, type MotionPlayer } from './stage/MotionController'
+import { detectExpression, mapToMotion } from './stage/motionMapper'
 import { attachDrag } from './app/DragController'
 import { ContextMenu } from './app/ContextMenu'
 import { useChatStream } from './chat/useChatStream'
@@ -24,6 +25,7 @@ export default function App() {
     let tracker: { dispose(): void } | null = null
     let motionRef: { dispose(): void } | null = null
     let tickRef: (() => void) | null = null
+    let triggerRef: ((text: string) => void) | null = null
     ;(async () => {
       try {
         const model = await stage.loadModel('./model/tororo/index.json')
@@ -57,6 +59,12 @@ export default function App() {
         }
         tickRef = onTick
         stage.app.ticker.add(onTick)
+        triggerRef = (text: string) => {
+          const expr = detectExpression(text)
+          const ref = mapToMotion(expr, 8)
+          if (ref) motion.playReaction(ref)
+        }
+        ;(window as unknown as { __triggerMotion?: (t: string) => void }).__triggerMotion = triggerRef
       } catch (e) {
         if (!cancelled) console.error('Live2D model load failed', e)
       }
@@ -72,7 +80,16 @@ export default function App() {
       if (tickRef) stage.app.ticker.remove(tickRef)
       detachDrag()
       stage.dispose()
+      ;(window as unknown as { __triggerMotion?: (t: string) => void }).__triggerMotion = undefined
+      triggerRef = null
     }
+  }, [])
+
+  useEffect(() => {
+    const off = window.api.chat.onDone((fullText) => {
+      ;(window as unknown as { __triggerMotion?: (t: string) => void }).__triggerMotion?.(fullText)
+    })
+    return off
   }, [])
 
   return (
