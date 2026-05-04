@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { startPassthroughLoop } from './app/passthrough'
 import { Live2DStage } from './stage/Live2DStage'
 import { CursorTracker } from './stage/CursorTracker'
+import { MotionController, type MotionPlayer } from './stage/MotionController'
 import { attachDrag } from './app/DragController'
 import { ContextMenu } from './app/ContextMenu'
 import { useChatStream } from './chat/useChatStream'
@@ -21,11 +22,34 @@ export default function App() {
     const stage = new Live2DStage(canvasRef.current)
     let cancelled = false
     let tracker: { dispose(): void } | null = null
+    let motionRef: { dispose(): void } | null = null
+    let tickRef: (() => void) | null = null
     ;(async () => {
       try {
         const model = await stage.loadModel('./model/tororo/index.json')
         if (cancelled) { stage.model?.destroy?.(); return }
         tracker = new CursorTracker(model, canvasRef.current!)
+        const player: MotionPlayer = {
+          play: async (group: string, index?: number) => {
+            await (model as unknown as { motion(g: string, i?: number): Promise<unknown> }).motion(group, index)
+          },
+          onMotionFinish: (cb: () => void) => {
+            const handler = () => cb()
+            const mgr = (model as unknown as {
+              internalModel: { motionManager: { on(e: string, h: () => void): void; off(e: string, h: () => void): void } }
+            }).internalModel.motionManager
+            mgr.on('motionFinish', handler)
+            return () => mgr.off('motionFinish', handler)
+          },
+        }
+        const motion = new MotionController(player, {
+          idleGroup: 'idle', tapGroup: 'tap_body', tapCount: 8,
+        })
+        motion.start()
+        const onTick = () => motion.update(stage.app.ticker.deltaMS / 1000)
+        stage.app.ticker.add(onTick)
+        motionRef = motion
+        tickRef = onTick
       } catch (e) {
         if (!cancelled) console.error('Live2D model load failed', e)
       }
@@ -34,7 +58,14 @@ export default function App() {
       onMove: (dx, dy) => window.api.window.moveBy(dx, dy),
       onClick: () => { /* drag-to-move only */ },
     })
-    return () => { cancelled = true; tracker?.dispose(); detachDrag(); stage.dispose() }
+    return () => {
+      cancelled = true
+      tracker?.dispose()
+      motionRef?.dispose()
+      if (tickRef) stage.app.ticker.remove(tickRef)
+      detachDrag()
+      stage.dispose()
+    }
   }, [])
 
   return (
