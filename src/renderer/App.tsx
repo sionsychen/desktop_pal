@@ -19,10 +19,13 @@ export default function App() {
     if (!canvasRef.current) return
     const stage = new Live2DStage(canvasRef.current)
     let cancelled = false
+    let tracker: { dispose(): void } | null = null
     ;(async () => {
       try {
-        await stage.loadModel('./model/tororo/index.json')
-        if (cancelled) stage.model?.destroy?.()
+        const model = await stage.loadModel('./model/tororo/index.json')
+        if (cancelled) { stage.model?.destroy?.(); return }
+        const { CursorTracker } = await import('./stage/CursorTracker')
+        tracker = new CursorTracker(model, canvasRef.current!)
       } catch (e) {
         if (!cancelled) console.error('Live2D model load failed', e)
       }
@@ -31,7 +34,7 @@ export default function App() {
       onMove: (dx, dy) => window.api.window.moveBy(dx, dy),
       onClick: () => { /* drag-to-move only */ },
     })
-    return () => { cancelled = true; detachDrag(); stage.dispose() }
+    return () => { cancelled = true; tracker?.dispose(); detachDrag(); stage.dispose() }
   }, [])
 
   return (
