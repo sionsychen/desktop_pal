@@ -44,4 +44,11 @@ contextBridge.exposeInMainWorld('api', {
     get: () => ipcRenderer.invoke(Channels.SettingsGet),
     set: (payload: any) => ipcRenderer.invoke(Channels.SettingsSet, payload),
   },
+  stage: {
+    onReloadModel: (cb: (modelPath: string) => void) => {
+      const h = (_e: IpcRendererEvent, p: { modelPath: string }) => cb(p.modelPath)
+      ipcRenderer.on('stage:reload-model', h)
+      return () => ipcRenderer.off('stage:reload-model', h)
+    },
+  },
 })

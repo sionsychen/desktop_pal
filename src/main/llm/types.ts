@@ -9,6 +9,9 @@ export interface Settings {
   temperature?: number
   /** 单次 response 最大 token, 默认未设置走 SDK 默认 (4096) */
   maxTokens?: number
+  /** Live2D 模型 manifest URL, 相对 renderer public 或绝对 file://;
+   * 留空 = ./model/tororo/tororo.model.json (Cubism 2) */
+  modelPath?: string
 }
 export interface ChatMessage { role: 'user' | 'assistant'; content: string }
 export type StreamEvent =

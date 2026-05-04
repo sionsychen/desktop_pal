@@ -81,6 +81,7 @@ export function registerIpc(win: BrowserWindow, userDataDir: string): { clearCha
     anthropicToken?: string
     openaiToken?: string
   }) => {
+    const oldModelPath = settings.modelPath
     settings = payload.settings
     settingsStore.save(settings)
     const creds = credentialsStore.load()
@@ -88,6 +89,10 @@ export function registerIpc(win: BrowserWindow, userDataDir: string): { clearCha
     if (payload.openaiToken !== undefined) creds.openai = payload.openaiToken
     credentialsStore.save(creds)
     session.setSystemPrompt(settings.systemPrompt)
+    // 模型路径变了 → 通知渲染端 reload
+    if (settings.modelPath !== oldModelPath) {
+      win.webContents.send('stage:reload-model', { modelPath: settings.modelPath ?? '' })
+    }
   })
 
   return {

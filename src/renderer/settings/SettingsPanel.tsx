@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import type { Settings } from '../../main/llm/types'
 
-interface Props { open: boolean; onClose: () => void }
+interface Props { open: boolean; onClose: () => void; firstRun?: boolean }
 
-export function SettingsPanel({ open, onClose }: Props) {
+export function SettingsPanel({ open, onClose, firstRun }: Props) {
   const [settings, setSettings] = useState<Settings | null>(null)
   const [hasA, setHasA] = useState(false)
   const [hasO, setHasO] = useState(false)
@@ -45,8 +45,14 @@ export function SettingsPanel({ open, onClose }: Props) {
       data-interactive="true"
       className="absolute inset-0 bg-black/60 flex items-center justify-center"
     >
-      <div className="bg-neutral-900 text-white rounded-xl p-5 w-[360px] space-y-3">
-        <div className="text-lg font-semibold">设置</div>
+      <div className="bg-neutral-900 text-white rounded-xl p-5 w-[360px] space-y-3 max-h-full overflow-y-auto">
+        <div className="text-lg font-semibold">{firstRun ? '🎀 欢迎,先填一下钥匙' : '设置'}</div>
+        {firstRun && (
+          <div className="text-xs text-neutral-300 leading-relaxed bg-neutral-800/70 rounded p-2 border border-pink-300/30">
+            桌宠需要一个 LLM 后端才能聊天。Anthropic 用 <code>https://api.anthropic.com</code>(填 token);自建/中转走 OpenAI-Compatible 也行。<br/>
+            填好保存就能开始,后续右键托盘 / 窗口可以再改。
+          </div>
+        )}
 
         <label className="block text-sm">
           Provider
@@ -151,6 +157,17 @@ export function SettingsPanel({ open, onClose }: Props) {
             />
           </label>
         </div>
+
+        <label className="block text-sm">
+          Live2D 模型 (.model.json / .model3.json)
+          <input
+            className="mt-1 w-full bg-neutral-800 rounded px-2 py-1 text-sm"
+            placeholder="./model/tororo/tororo.model.json (留空 = Tororo)"
+            value={settings.modelPath ?? ''}
+            onChange={(e) => upd({ modelPath: e.target.value || undefined })}
+          />
+          <span className="text-xs text-neutral-500">改完保存,模型会自动重载。可填 file:// 绝对路径或 dev server 相对路径。</span>
+        </label>
 
         <div className="flex justify-end gap-2 pt-2">
           <button

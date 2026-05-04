@@ -27,6 +27,9 @@ declare global {
           openaiToken?: string
         }) => Promise<void>
       }
+      stage: {
+        onReloadModel: (cb: (modelPath: string) => void) => () => void
+      }
     }
   }
 }

@@ -15,7 +15,31 @@ export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const stageRef = useRef<Live2DStage | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [firstRun, setFirstRun] = useState(false)
+  const [modelPath, setModelPath] = useState<string>('./model/tororo/tororo.model.json')
   const chat = useChatStream()
+
+  // 首次启动: 检测是否还没填任何 token, 自动弹设置面板
+  useEffect(() => {
+    let cancelled = false
+    void window.api.settings.get().then((r) => {
+      if (cancelled) return
+      if (r.settings.modelPath) setModelPath(r.settings.modelPath)
+      if (!r.hasAnthropic && !r.hasOpenAI) {
+        setFirstRun(true)
+        setSettingsOpen(true)
+      }
+    })
+    return () => { cancelled = true }
+  }, [])
+
+  // 模型路径变更: 通过 IPC 推到 state, 让 stage useEffect 重跑
+  useEffect(() => {
+    const off = window.api.stage.onReloadModel((newPath) => {
+      setModelPath(newPath || './model/tororo/tororo.model.json')
+    })
+    return off
+  }, [])
 
   useEffect(() =>
     startPassthroughLoop(
@@ -35,7 +59,7 @@ export default function App() {
     let triggerRef: ((text: string) => void) | null = null
     ;(async () => {
       try {
-        const model = await stage.loadModel('./model/tororo/tororo.model.json')
+        const model = await stage.loadModel(modelPath)
         if (cancelled) { stage.model?.destroy?.(); return }
         tracker = new CursorTracker(model, canvasRef.current!)
         const player: MotionPlayer = {
@@ -94,7 +118,7 @@ export default function App() {
       ;(window as unknown as { __triggerMotion?: (t: string) => void }).__triggerMotion = undefined
       triggerRef = null
     }
-  }, [])
+  }, [modelPath])
 
   useEffect(() => {
     const off = window.api.chat.onDone((fullText) => {
@@ -118,7 +142,7 @@ export default function App() {
         { label: 'Settings...', onClick: () => setSettingsOpen(true) },
         { label: 'Quit', onClick: () => window.api.window.quit() },
       ]} />
-      <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <SettingsPanel open={settingsOpen} firstRun={firstRun} onClose={() => { setSettingsOpen(false); setFirstRun(false) }} />
     </div>
   )
 }
