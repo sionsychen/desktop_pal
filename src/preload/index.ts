@@ -43,6 +43,7 @@ contextBridge.exposeInMainWorld('api', {
   settings: {
     get: () => ipcRenderer.invoke(Channels.SettingsGet),
     set: (payload: any) => ipcRenderer.invoke(Channels.SettingsSet, payload),
+    openWindow: () => ipcRenderer.send(Channels.SettingsOpenWindow),
   },
   stage: {
     onReloadModel: (cb: (modelPath: string) => void) => {

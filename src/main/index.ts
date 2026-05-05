@@ -17,9 +17,9 @@ app.whenReady().then(async () => {
   const winStateStore = new WindowStateStore(userDataDir)
   const restored = winStateStore.load()
   const win = createPetWindow(preload, restored ?? undefined)
-  const ipcCtl = registerIpc(win, userDataDir)
+  const ipcCtl = registerIpc(win, userDataDir, preload)
   win.setIgnoreMouseEvents(true, { forward: true })
-  createTray(win, { clearChatHistory: ipcCtl.clearChatHistory })
+  createTray(win, { clearChatHistory: ipcCtl.clearChatHistory, preloadPath: preload })
 
   // 移动/缩放后即时落盘
   let saveTimer: NodeJS.Timeout | null = null

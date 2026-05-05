@@ -4,11 +4,13 @@ const { Tray, Menu, nativeImage, app } = electron
 import { join } from 'path'
 import { fileURLToPath } from 'url'
 import { dirname } from 'path'
+import { createSettingsWindow } from './settingsWindow'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 export interface TrayCallbacks {
   clearChatHistory(): void
+  preloadPath: string
 }
 
 /** 从 Tororo 纹理 (2048x2048) 裁脸做 tray 图标。脸部 mesh 在 texture 右上区域 ≈ (1300,30)-(2030,720) */
@@ -39,6 +41,7 @@ export function createTray(win: BrowserWindow, cb: TrayCallbacks): TrayType {
     { label: 'Show', click: () => win.show() },
     { label: 'Hide', click: () => win.hide() },
     { type: 'separator' },
+    { label: 'Settings…', click: () => createSettingsWindow(cb.preloadPath) },
     {
       label: 'Clear chat history',
       click: () => {

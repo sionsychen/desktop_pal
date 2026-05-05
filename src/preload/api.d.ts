@@ -26,6 +26,7 @@ declare global {
           anthropicToken?: string
           openaiToken?: string
         }) => Promise<void>
+        openWindow: () => void
       }
       stage: {
         onReloadModel: (cb: (modelPath: string) => void) => () => void

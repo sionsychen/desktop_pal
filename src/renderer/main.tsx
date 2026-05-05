@@ -1,5 +1,9 @@
-import React from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
+import SettingsApp from './settings/SettingsApp'
 
-createRoot(document.getElementById('root')!).render(<App />)
+const isSettings = window.location.hash.includes('/settings')
+
+createRoot(document.getElementById('root')!).render(
+  isSettings ? <SettingsApp /> : <App />,
+)

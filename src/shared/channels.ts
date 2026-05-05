@@ -10,5 +10,6 @@ export const Channels = {
   SettingsGet: 'settings:get',
   SettingsSet: 'settings:set',
   SettingsTest: 'settings:test',
+  SettingsOpenWindow: 'settings:open-window',
 } as const
 export type ChannelName = (typeof Channels)[keyof typeof Channels]

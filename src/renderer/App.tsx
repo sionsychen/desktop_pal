@@ -9,25 +9,21 @@ import { ContextMenu } from './app/ContextMenu'
 import { useChatStream } from './chat/useChatStream'
 import { ChatInput } from './chat/ChatInput'
 import { ChatBubble } from './chat/ChatBubble'
-import { SettingsPanel } from './settings/SettingsPanel'
 
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const stageRef = useRef<Live2DStage | null>(null)
-  const [settingsOpen, setSettingsOpen] = useState(false)
-  const [firstRun, setFirstRun] = useState(false)
   const [modelPath, setModelPath] = useState<string>('./model/tororo/tororo.model.json')
   const chat = useChatStream()
 
-  // 首次启动: 检测是否还没填任何 token, 自动弹设置面板
+  // 首次启动: 检测是否还没填任何 token, 自动打开独立设置窗口
   useEffect(() => {
     let cancelled = false
     void window.api.settings.get().then((r) => {
       if (cancelled) return
       if (r.settings.modelPath) setModelPath(r.settings.modelPath)
       if (!r.hasAnthropic && !r.hasOpenAI) {
-        setFirstRun(true)
-        setSettingsOpen(true)
+        window.api.settings.openWindow()
       }
     })
     return () => { cancelled = true }
@@ -139,10 +135,9 @@ export default function App() {
         <ChatInput disabled={chat.streaming} onSubmit={(t) => chat.send(t)} />
       </div>
       <ContextMenu items={[
-        { label: 'Settings...', onClick: () => setSettingsOpen(true) },
+        { label: 'Settings...', onClick: () => window.api.settings.openWindow() },
         { label: 'Quit', onClick: () => window.api.window.quit() },
       ]} />
-      <SettingsPanel open={settingsOpen} firstRun={firstRun} onClose={() => { setSettingsOpen(false); setFirstRun(false) }} />
     </div>
   )
 }

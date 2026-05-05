@@ -9,8 +9,13 @@ import { createLanguageModel } from './llm/providerFactory'
 import { SettingsStore } from './settings/store'
 import { CredentialsStore } from './settings/credentials'
 import { ChatHistoryStore } from './settings/chatHistory'
+import { createSettingsWindow } from './settingsWindow'
 
-export function registerIpc(win: BrowserWindow, userDataDir: string): { clearChatHistory: () => void } {
+export function registerIpc(
+  win: BrowserWindow,
+  userDataDir: string,
+  preloadPath: string,
+): { clearChatHistory: () => void } {
   const settingsStore = new SettingsStore(userDataDir)
   const credentialsStore = new CredentialsStore(userDataDir)
   const historyStore = new ChatHistoryStore(userDataDir)
@@ -39,6 +44,10 @@ export function registerIpc(win: BrowserWindow, userDataDir: string): { clearCha
   }
 
   ipcMain.on(Channels.WindowQuit, () => app.quit())
+
+  ipcMain.on(Channels.SettingsOpenWindow, () => {
+    createSettingsWindow(preloadPath)
+  })
 
   ipcMain.on(Channels.WindowMove, (_e, p: { dx: number; dy: number }) => {
     moveWindowBy(win, p.dx, p.dy)
