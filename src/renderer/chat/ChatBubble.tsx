@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 interface Props { text: string; streaming: boolean; error: string | null }
 
@@ -7,16 +7,68 @@ const ACCENT_ERROR = '#c2576b'  // 错误态玫红
 const HIGHLIGHT = '#ffd84d'     // 黄色装饰
 const PINK_BRIGHT = '#ff6fa3'   // 流式光标 / 高亮粉
 
+const FADE_MS = 200
+
+// 字数 / 5 + 5s, 即每字 200ms + 5s buffer; clamp [5s, 30s]
+function calcHideMs(text: string): number {
+  return Math.max(5000, Math.min(30000, text.length * 200 + 5000))
+}
+
 export function ChatBubble({ text, streaming, error }: Props) {
-  const scrollRef = useRef<HTMLDivElement>(null)
+  const [visible, setVisible] = useState(false)
+  const [mounted, setMounted] = useState(false)  // fade-out 结束后才 unmount, 释放 overlay 高度
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const unmountTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // 流式时自动 tail-follow 到底
+  // 仅在 streaming 结束 (有 text) 或 error 时显示, streaming 期间不显示
   useEffect(() => {
-    const el = scrollRef.current
-    if (el) el.scrollTop = el.scrollHeight
-  }, [text, streaming])
+    if (hideTimerRef.current) {
+      clearTimeout(hideTimerRef.current)
+      hideTimerRef.current = null
+    }
+    if (unmountTimerRef.current) {
+      clearTimeout(unmountTimerRef.current)
+      unmountTimerRef.current = null
+    }
+    if (error) {
+      setMounted(true)
+      setVisible(true)
+      return
+    }
+    if (streaming) {
+      setVisible(false)
+      // streaming 瞬间不需要 fade, 直接 unmount
+      setMounted(false)
+      return
+    }
+    if (text) {
+      setMounted(true)
+      setVisible(true)
+      hideTimerRef.current = setTimeout(() => {
+        setVisible(false)
+        // 等 fade 结束再 unmount, 让 overlay 高度也收缩, 猫同步弹回
+        unmountTimerRef.current = setTimeout(() => setMounted(false), FADE_MS)
+      }, calcHideMs(text))
+    } else {
+      setVisible(false)
+      setMounted(false)
+    }
+    return () => {
+      if (hideTimerRef.current) {
+        clearTimeout(hideTimerRef.current)
+        hideTimerRef.current = null
+      }
+      if (unmountTimerRef.current) {
+        clearTimeout(unmountTimerRef.current)
+        unmountTimerRef.current = null
+      }
+    }
+  }, [text, streaming, error])
 
-  if (!text && !streaming && !error) return null
+  // streaming 期间不挂载, hide-fade 完成后不挂载 → overlay 高度为 0 → 猫恢复全高
+  if (streaming) return null
+  if (!mounted) return null
+  if (!text && !error) return null
 
   const accent = error ? ACCENT_ERROR : ACCENT
   const bg = error
@@ -24,11 +76,18 @@ export function ChatBubble({ text, streaming, error }: Props) {
     : 'linear-gradient(165deg, #ffffff 0%, #fff7fb 55%, #ffe0ee 100%)'
 
   return (
-    <div className="absolute top-2 left-2 right-2 select-text" data-interactive="true">
+    <div
+      className="select-text"
+      data-interactive={visible ? 'true' : undefined}
+      style={{
+        opacity: visible ? 1 : 0,
+        pointerEvents: visible ? 'auto' : 'none',
+        transition: `opacity ${FADE_MS}ms ease`,
+      }}
+    >
       <div
         className="relative"
         style={{
-          // 外层负责定位 + 描边 + 硬阴影 + 抗锯齿
           background: bg,
           border: `2.5px solid ${accent}`,
           borderRadius: 22,
@@ -41,36 +100,11 @@ export function ChatBubble({ text, streaming, error }: Props) {
           padding: '10px 14px 12px 14px',
         }}
       >
-        {/* 内层负责"无滚动条 + 底部渐隐"  */}
-        <div
-          ref={scrollRef}
-          className="dp-bubble-scroll"
-          style={{
-            maxHeight: 130,
-            overflowY: 'auto',
-            scrollbarWidth: 'none',                     // Firefox
-            msOverflowStyle: 'none',                    // legacy IE / Edge
-            WebkitMaskImage: 'linear-gradient(180deg, #000 0, #000 80%, transparent 100%)',
-            maskImage: 'linear-gradient(180deg, #000 0, #000 80%, transparent 100%)',
-          }}
-        >
-          {error ? (
-            <span>呜… {error}</span>
-          ) : (
-            <span>
-              {text}
-              {streaming && (
-                <span
-                  aria-hidden
-                  className="animate-pulse"
-                  style={{ color: PINK_BRIGHT, marginLeft: 2, fontWeight: 800 }}
-                >
-                  ▍
-                </span>
-              )}
-            </span>
-          )}
-        </div>
+        {error ? (
+          <span>呜… {error}</span>
+        ) : (
+          <span>{text}</span>
+        )}
 
         {/* 角色头顶尾巴 (棱角朝下) */}
         <span

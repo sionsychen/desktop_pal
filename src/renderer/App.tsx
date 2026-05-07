@@ -124,16 +124,26 @@ export default function App() {
   }, [])
 
   return (
-    <div className="w-screen h-screen relative">
-      <canvas
-        ref={canvasRef}
-        className="w-full h-full block"
-        style={{ background: 'transparent', cursor: 'grab' }}
-      />
-      <ChatBubble text={chat.text} streaming={chat.streaming} error={chat.error} />
-      <div data-interactive="true" className="absolute bottom-2 left-2 right-2">
+    <div className="w-screen h-screen flex flex-col justify-end">
+      {/* 气泡: content-driven 高度, 无内容时 return null → 0px, 鼠标可穿透 */}
+      <div className="flex-none px-2">
+        <ChatBubble text={chat.text} streaming={chat.streaming} error={chat.error} />
+      </div>
+
+      {/* 猫: 固定高度, 永远在此 */}
+      <div className="flex-none relative" style={{ height: 260 }}>
+        <canvas
+          ref={canvasRef}
+          className="w-full h-full block"
+          style={{ background: 'transparent', cursor: 'grab' }}
+        />
+      </div>
+
+      {/* 输入框 */}
+      <div data-interactive="true" className="flex-none px-2 pb-2 pt-1">
         <ChatInput disabled={chat.streaming} onSubmit={(t) => chat.send(t)} />
       </div>
+
       <ContextMenu items={[
         { label: 'Settings...', onClick: () => window.api.settings.openWindow() },
         { label: 'Quit', onClick: () => window.api.window.quit() },

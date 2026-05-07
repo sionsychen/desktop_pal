@@ -1,18 +1,18 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import type { Settings } from '../../main/llm/types'
 import {
-  ACCENT, PINK, YELLOW, TEXT, FONT_STACK,
+  ACCENT, TEXT, MUTED, BORDER, BORDER_FOCUS, SURFACE, SURFACE_ALT, FONT_STACK,
   PillInput, PillTextarea, FieldLabel, ProviderToggle, ChunkyButton, SectionCard,
 } from './_shared'
 
 type TabId = 'provider' | 'character' | 'chat' | 'about'
 
-interface TabDef { id: TabId; label: string; icon: string }
+interface TabDef { id: TabId; label: string }
 const TABS: TabDef[] = [
-  { id: 'provider',  label: '接口',   icon: '✦' },
-  { id: 'character', label: '角色',   icon: '★' },
-  { id: 'chat',      label: '对话',   icon: '♥' },
-  { id: 'about',     label: '外观',   icon: '✿' },
+  { id: 'provider',  label: '接口' },
+  { id: 'character', label: '角色' },
+  { id: 'chat',      label: '对话' },
+  { id: 'about',     label: '关于' },
 ]
 
 export default function SettingsApp() {
@@ -38,7 +38,7 @@ export default function SettingsApp() {
       <Shell>
         <div style={{
           height: '100%', display: 'grid', placeItems: 'center',
-          fontFamily: FONT_STACK, color: ACCENT, fontWeight: 700,
+          fontFamily: FONT_STACK, color: MUTED, fontWeight: 500,
         }}>
           加载中…
         </div>
@@ -69,58 +69,51 @@ export default function SettingsApp() {
 
   return (
     <Shell>
-      {/* 顶部 */}
       <header style={{
-        padding: '14px 24px 12px 24px',
-        borderBottom: `2px solid ${ACCENT}`,
-        background: `linear-gradient(180deg, #fff7fb 0%, #ffe9f2 100%)`,
-        position: 'relative',
+        padding: '14px 24px',
+        borderBottom: `1px solid ${BORDER}`,
+        background: SURFACE,
         flex: '0 0 auto',
       }}>
-        <span aria-hidden style={decoStar(YELLOW, ACCENT, 22)} className="dp-deco-left">★</span>
-        <span aria-hidden style={decoHeart(PINK, ACCENT, 16)} className="dp-deco-right">♥</span>
         <h1 style={{
-          margin: 0, textAlign: 'center',
-          fontFamily: FONT_STACK, fontWeight: 800, fontSize: 20, color: ACCENT,
-          letterSpacing: '0.04em',
+          margin: 0,
+          fontFamily: FONT_STACK, fontWeight: 600, fontSize: 16, color: TEXT,
+          letterSpacing: '-0.01em',
         }}>
           Desktop_Pal · 设置
         </h1>
         <div style={{
-          textAlign: 'center', marginTop: 2,
-          fontFamily: FONT_STACK, fontSize: 11, color: '#9b8590',
+          marginTop: 2,
+          fontFamily: FONT_STACK, fontSize: 12, color: MUTED,
         }}>
           配置桌宠与 LLM 后端
         </div>
       </header>
 
-      {/* 主体 */}
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-        {/* 侧栏 */}
         <nav style={{
-          width: 168, flex: '0 0 168px',
-          padding: '18px 12px',
-          background: 'linear-gradient(180deg, #fff0f6 0%, #ffe0ec 100%)',
-          borderRight: `2px solid ${ACCENT}`,
-          display: 'flex', flexDirection: 'column', gap: 8,
+          width: 180, flex: '0 0 180px',
+          padding: '12px 10px',
+          background: SURFACE_ALT,
+          borderRight: `1px solid ${BORDER}`,
+          display: 'flex', flexDirection: 'column', gap: 2,
         }}>
           {TABS.map((t) => (
             <SidebarItem key={t.id} active={t.id === tab} onClick={() => setTab(t.id)}
-              icon={t.icon} label={t.label} />
+              label={t.label} />
           ))}
           <div style={{ flex: 1 }} />
           <div style={{
-            fontFamily: FONT_STACK, fontSize: 10, color: '#9b8590', textAlign: 'center',
-            padding: '8px 4px', lineHeight: 1.4,
+            fontFamily: FONT_STACK, fontSize: 11, color: MUTED, textAlign: 'center',
+            padding: '8px 4px',
           }}>
-            v0.1.0 · Tororo Edition
+            v0.1.0
           </div>
         </nav>
 
-        {/* 内容区 */}
         <main style={{
           flex: 1, padding: '20px 24px 24px 24px', overflowY: 'auto',
-          background: 'linear-gradient(180deg, #fffafd 0%, #fff7fb 100%)',
+          background: SURFACE_ALT,
         }} className="dp-no-scrollbar">
           {tab === 'provider' && (
             <ProviderTab
@@ -142,27 +135,27 @@ export default function SettingsApp() {
         </main>
       </div>
 
-      {/* 底部 */}
       <footer style={{
         padding: '12px 24px',
-        borderTop: `2px solid ${ACCENT}`,
-        background: 'linear-gradient(180deg, #fff7fb 0%, #ffe9f2 100%)',
+        borderTop: `1px solid ${BORDER}`,
+        background: SURFACE,
         display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
         gap: 10, flex: '0 0 auto',
       }}>
         <div style={{
           flex: 1,
-          fontFamily: FONT_STACK, fontSize: 12, color: savedFlash ? '#2f8a3e' : '#9b8590',
-          fontWeight: savedFlash ? 800 : 600,
+          fontFamily: FONT_STACK, fontSize: 12,
+          color: savedFlash ? BORDER_FOCUS : MUTED,
+          fontWeight: savedFlash ? 600 : 400,
           transition: 'color 200ms ease',
         }}>
-          {savedFlash ? '✓ 已保存' : '改完记得保存哦~'}
+          {savedFlash ? '已保存' : ''}
         </div>
         <ChunkyButton variant="ghost" onClick={() => window.close()} disabled={saving}>
           关闭
         </ChunkyButton>
         <ChunkyButton onClick={save} disabled={saving}>
-          {saving ? '保存中…' : '保存 ✓'}
+          {saving ? '保存中…' : '保存'}
         </ChunkyButton>
       </footer>
     </Shell>
@@ -173,7 +166,7 @@ function Shell({ children }: { children: ReactNode }) {
   return (
     <div style={{
       width: '100vw', height: '100vh',
-      background: '#fff7fb',
+      background: SURFACE,
       color: TEXT,
       fontFamily: FONT_STACK,
       display: 'flex', flexDirection: 'column',
@@ -184,30 +177,33 @@ function Shell({ children }: { children: ReactNode }) {
   )
 }
 
-function SidebarItem({ active, onClick, icon, label }: {
-  active: boolean; onClick: () => void; icon: string; label: string
+function SidebarItem({ active, onClick, label }: {
+  active: boolean; onClick: () => void; label: string
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       style={{
-        display: 'flex', alignItems: 'center', gap: 10,
-        padding: '10px 14px',
-        borderRadius: 14,
-        border: `2px solid ${active ? ACCENT : 'transparent'}`,
-        background: active
-          ? 'linear-gradient(180deg, #ffffff 0%, #fff0f6 100%)'
-          : 'transparent',
-        boxShadow: active ? `0 2px 0 0 ${ACCENT}` : 'none',
-        fontFamily: FONT_STACK, fontWeight: 800, fontSize: 14,
-        color: active ? ACCENT : '#7d6571',
+        padding: '8px 12px',
+        borderRadius: 6,
+        border: 'none',
+        background: active ? 'rgba(122,108,245,0.10)' : 'transparent',
+        fontFamily: FONT_STACK, fontWeight: active ? 600 : 500, fontSize: 13,
+        color: active ? BORDER_FOCUS : ACCENT,
         cursor: 'pointer',
         textAlign: 'left',
-        transition: 'all 120ms ease',
+        transition: 'background 120ms ease',
+      }}
+      onMouseEnter={(e) => {
+        if (active) return
+        ;(e.currentTarget as HTMLButtonElement).style.background = 'rgba(0,0,0,0.04)'
+      }}
+      onMouseLeave={(e) => {
+        if (active) return
+        ;(e.currentTarget as HTMLButtonElement).style.background = 'transparent'
       }}
     >
-      <span style={{ color: active ? PINK : '#b9a5ad', fontSize: 16 }}>{icon}</span>
       {label}
     </button>
   )
@@ -222,13 +218,13 @@ function ProviderTab({ settings, upd, hasA, hasO, aTok, setATok, oTok, setOTok }
 }) {
   return (
     <div>
-      <SectionCard title="PROVIDER">
-        <FieldLabel hint="选一个 LLM 后端,后续可随时切换">类型</FieldLabel>
+      <SectionCard title="Provider">
+        <FieldLabel hint="选一个 LLM 后端, 后续可随时切换">类型</FieldLabel>
         <ProviderToggle value={settings.provider} onChange={(v) => upd({ provider: v })} />
       </SectionCard>
 
       {settings.provider === 'anthropic' ? (
-        <SectionCard title="ANTHROPIC">
+        <SectionCard title="Anthropic">
           <Grid>
             <div>
               <FieldLabel hint="留空 = 官方 api.anthropic.com">Base URL</FieldLabel>
@@ -248,20 +244,20 @@ function ProviderTab({ settings, upd, hasA, hasO, aTok, setATok, oTok, setOTok }
             </div>
           </Grid>
           <div style={{ marginTop: 12 }}>
-            <FieldLabel hint={hasA ? '已存在 token,留空保持不变' : '必填: sk-ant-… 开头'}>API Token</FieldLabel>
+            <FieldLabel hint={hasA ? '已存在 token, 留空保持不变' : '必填: sk-ant-… 开头'}>API Token</FieldLabel>
             <PillInput
               type="password"
               value={aTok}
               onChange={setATok}
-              placeholder={hasA ? '●●●●●●●●●●●●' : 'sk-ant-…'}
+              placeholder={hasA ? '••••••••••••' : 'sk-ant-…'}
             />
           </div>
         </SectionCard>
       ) : (
-        <SectionCard title="OPENAI-COMPATIBLE">
+        <SectionCard title="OpenAI-Compatible">
           <Grid>
             <div>
-              <FieldLabel hint="必填,需带 /v1 后缀">Base URL</FieldLabel>
+              <FieldLabel hint="必填, 需带 /v1 后缀">Base URL</FieldLabel>
               <PillInput
                 value={settings.openai.baseURL}
                 onChange={(v) => upd({ openai: { ...settings.openai, baseURL: v } })}
@@ -278,12 +274,12 @@ function ProviderTab({ settings, upd, hasA, hasO, aTok, setATok, oTok, setOTok }
             </div>
           </Grid>
           <div style={{ marginTop: 12 }}>
-            <FieldLabel hint={hasO ? '已存在 key,留空保持不变' : '必填'}>API Key</FieldLabel>
+            <FieldLabel hint={hasO ? '已存在 key, 留空保持不变' : '必填'}>API Key</FieldLabel>
             <PillInput
               type="password"
               value={oTok}
               onChange={setOTok}
-              placeholder={hasO ? '●●●●●●●●●●●●' : 'sk-…'}
+              placeholder={hasO ? '••••••••••••' : 'sk-…'}
             />
           </div>
         </SectionCard>
@@ -297,24 +293,24 @@ function CharacterTab({ settings, upd }: {
 }) {
   return (
     <div>
-      <SectionCard title="LIVE2D 模型">
-        <FieldLabel hint="留空 = 默认 Tororo (白猫)">模型 manifest 路径</FieldLabel>
+      <SectionCard title="Live2D 模型">
+        <FieldLabel hint="留空 = 默认 Tororo">模型 manifest 路径</FieldLabel>
         <PillInput
           value={settings.modelPath ?? ''}
           onChange={(v) => upd({ modelPath: v || undefined })}
           placeholder="./model/tororo/tororo.model.json"
         />
         <div style={{
-          marginTop: 14,
+          marginTop: 12,
           padding: '10px 12px',
-          borderRadius: 12,
-          background: 'rgba(255,209,221,0.4)',
-          border: `1.5px dashed ${PINK}`,
-          fontSize: 12, lineHeight: 1.5, color: ACCENT,
+          borderRadius: 6,
+          background: SURFACE_ALT,
+          border: `1px solid ${BORDER}`,
+          fontSize: 12, lineHeight: 1.6, color: MUTED,
+          fontFamily: FONT_STACK,
         }}>
-          指向 <code style={{ background: '#fff', padding: '0 4px', borderRadius: 4 }}>.model.json</code> (Cubism 2)
-          或 <code style={{ background: '#fff', padding: '0 4px', borderRadius: 4 }}>.model3.json</code> (Cubism 3+)
-          的相对路径。改完保存后桌宠会自动重载。
+          支持 <code style={codeStyle}>.model.json</code> (Cubism 2)
+          或 <code style={codeStyle}>.model3.json</code> (Cubism 3+)。改完保存后桌宠会自动重载。
         </div>
       </SectionCard>
     </div>
@@ -326,8 +322,8 @@ function ChatTab({ settings, upd }: {
 }) {
   return (
     <div>
-      <SectionCard title="SYSTEM PROMPT">
-        <FieldLabel hint="给猫主子立人设, 影响所有回复语气">人设描述</FieldLabel>
+      <SectionCard title="System Prompt">
+        <FieldLabel hint="给桌宠立人设, 影响所有回复语气">人设描述</FieldLabel>
         <PillTextarea
           rows={6}
           value={settings.systemPrompt}
@@ -339,7 +335,7 @@ function ChatTab({ settings, upd }: {
       <SectionCard title="生成参数">
         <Grid>
           <div>
-            <FieldLabel hint="0 – 2, 越高越随机活泼 (留空=默认)">Temperature</FieldLabel>
+            <FieldLabel hint="0 – 2, 越高越随机 (留空 = 默认)">Temperature</FieldLabel>
             <PillInput
               value={settings.temperature?.toString() ?? ''}
               onChange={(v) => upd({ temperature: v === '' ? undefined : Number(v) })}
@@ -363,20 +359,22 @@ function ChatTab({ settings, upd }: {
 function AboutTab() {
   return (
     <div>
-      <SectionCard title="ABOUT">
-        <div style={{ fontFamily: FONT_STACK, fontSize: 13, lineHeight: 1.7, color: ACCENT }}>
-          <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 6 }}>
-            Desktop_Pal <span style={{ color: PINK }}>♥</span> Tororo
+      <SectionCard title="About">
+        <div style={{ fontFamily: FONT_STACK, fontSize: 13, lineHeight: 1.7, color: TEXT }}>
+          <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 6 }}>
+            Desktop_Pal
           </div>
-          <div>一只一直陪着你写代码 / 摸鱼 / 发呆的白猫桌宠。</div>
-          <div style={{ marginTop: 8, color: '#7d6571' }}>更多外观选项 (主题色 / 气泡透明度 / 装饰元素) 后续会加进来 ✦</div>
+          <div style={{ color: MUTED }}>一只一直陪着你写代码 / 摸鱼 / 发呆的桌宠。</div>
         </div>
       </SectionCard>
       <SectionCard title="快捷键">
-        <ul style={{ margin: 0, paddingLeft: 18, fontFamily: FONT_STACK, fontSize: 13, lineHeight: 1.8, color: ACCENT }}>
-          <li><b>Ctrl+Shift+Space</b> · 召唤桌宠到鼠标附近并聚焦输入</li>
-          <li>左键拖拽桌宠 · 移动窗口</li>
-          <li>右键桌宠 · 打开菜单</li>
+        <ul style={{
+          margin: 0, paddingLeft: 18,
+          fontFamily: FONT_STACK, fontSize: 13, lineHeight: 1.9, color: TEXT,
+        }}>
+          <li><kbd style={kbdStyle}>Ctrl + Shift + Space</kbd> 召唤桌宠到鼠标附近并聚焦输入</li>
+          <li>左键拖拽桌宠 — 移动窗口</li>
+          <li>右键桌宠 — 打开菜单</li>
         </ul>
       </SectionCard>
     </div>
@@ -391,17 +389,24 @@ function Grid({ children }: { children: ReactNode }) {
   )
 }
 
-function decoStar(c: string, stroke: string, size: number) {
-  return {
-    position: 'absolute' as const, top: 8, left: 18,
-    fontSize: size, color: c, lineHeight: 1,
-    textShadow: `0 1px 0 ${stroke}, 1px 0 0 ${stroke}, -1px 0 0 ${stroke}, 0 -1px 0 ${stroke}, 1px 1px 0 ${stroke}, -1px -1px 0 ${stroke}`,
-  }
+const codeStyle: CSSProperties = {
+  background: '#fff',
+  padding: '1px 6px',
+  borderRadius: 4,
+  border: `1px solid ${BORDER}`,
+  fontSize: 12,
+  fontFamily: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace',
+  color: TEXT,
 }
-function decoHeart(c: string, stroke: string, size: number) {
-  return {
-    position: 'absolute' as const, top: 12, right: 22,
-    fontSize: size, color: c, lineHeight: 1,
-    textShadow: `0 1px 0 ${stroke}, 1px 0 0 ${stroke}, -1px 0 0 ${stroke}, 0 -1px 0 ${stroke}`,
-  }
+
+const kbdStyle: CSSProperties = {
+  display: 'inline-block',
+  padding: '1px 6px',
+  margin: '0 2px',
+  borderRadius: 4,
+  border: `1px solid ${BORDER}`,
+  background: '#fff',
+  fontSize: 11,
+  fontFamily: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace',
+  color: TEXT,
 }

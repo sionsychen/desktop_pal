@@ -5,7 +5,7 @@ const { BrowserWindow: BrowserWindowCtor, screen } = electron
 export interface RestoreBounds { x: number; y: number; width: number; height: number }
 
 export const DEFAULT_WIDTH = 240
-export const DEFAULT_HEIGHT = 360
+export const DEFAULT_HEIGHT = 520
 
 export function buildWindowOptions(preloadPath: string, bounds?: { x?: number; y?: number }): BrowserWindowConstructorOptions {
   return {

@@ -5,30 +5,31 @@ import { Live2DModel } from 'pixi-live2d-display'
 // pixi-live2d-display 的 @pixi/ticker 类型路径与 pixi.js 内嵌的不同名,这里强转跳过
 Live2DModel.registerTicker(PIXI.Ticker as unknown as Parameters<typeof Live2DModel.registerTicker>[0])
 
+const FIT_PADDING = 0.96  // 模型 bbox 占 canvas 的最大比例 (留 4% 呼吸空间)
+
 export class Live2DStage {
   readonly app: PIXI.Application
   readonly canvas: HTMLCanvasElement
   model: Live2DModel | null = null
+  private readonly resizeObserver: ResizeObserver
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas
+    // 不传 resizeTo, 不让 PIXI 自己读 canvas 尺寸; 我们用 ResizeObserver 单一驱动
     this.app = new PIXI.Application({
       view: canvas,
       backgroundAlpha: 0,
       antialias: true,
       autoDensity: true,
       resolution: window.devicePixelRatio,
-      resizeTo: canvas,
+      width: canvas.clientWidth || 1,
+      height: canvas.clientHeight || 1,
     })
-    // 关掉 stage 的 pixi 事件监听; Live2DModel 不是标准 DisplayObject,
-    // 会让 pixi v7 的 EventBoundary 调 isInteractive() 时炸
     this.app.stage.eventMode = 'none'
     this.app.stage.interactiveChildren = false
-    window.addEventListener('resize', this.onWindowResize)
-  }
 
-  private onWindowResize = (): void => {
-    this.refit()
+    this.resizeObserver = new ResizeObserver(() => this.refit())
+    this.resizeObserver.observe(canvas)
   }
 
   async loadModel(modelUrl: string): Promise<Live2DModel> {
@@ -47,30 +48,30 @@ export class Live2DStage {
     return model
   }
 
+  /** 把模型 fit 进 canvas client box, 水平居中, 垂直底部对齐 */
   refit(): void {
-    if (!this.model) return
-    // canvas.clientWidth 在某些时机返回 pixi 给 canvas 设的 HTML 属性默认值 800x600
-    // 直接用 viewport 尺寸,这是 BrowserWindow 的 content area, 跟实际窗口一致
-    const vw = window.innerWidth
-    const vh = window.innerHeight
+    const cw = this.canvas.clientWidth
+    const ch = this.canvas.clientHeight
+    if (cw <= 0 || ch <= 0) return
 
-    // 同步 canvas + renderer 到真实尺寸
-    this.canvas.style.width = vw + 'px'
-    this.canvas.style.height = vh + 'px'
-    this.app.renderer.resize(vw, vh)
+    // 同步 PIXI renderer 到 canvas 当前 client 尺寸 (不写 canvas style, 那是 CSS 的事)
+    this.app.renderer.resize(cw, ch)
+
+    if (!this.model) return
 
     this.model.scale.set(1)
     this.model.position.set(0, 0)
     this.model.pivot.set(0, 0)
     const bounds = this.model.getLocalBounds()
 
-    // 同时按宽和高约束,取小的那个 → 整个 bbox 进窗口,不截断
-    const scaleByH = (vh * 0.92) / bounds.height
-    const scaleByW = (vw * 0.92) / bounds.width
-    const scale = Math.min(scaleByH, scaleByW)
+    const scale = Math.min(
+      (ch * FIT_PADDING) / bounds.height,
+      (cw * FIT_PADDING) / bounds.width,
+    )
     this.model.scale.set(scale)
-    this.model.x = vw / 2 - (bounds.x + bounds.width / 2) * scale
-    this.model.y = vh / 2 - (bounds.y + bounds.height / 2) * scale
+    // 水平居中, 底部对齐: bbox 底贴 canvas 底
+    this.model.x = cw / 2 - (bounds.x + bounds.width / 2) * scale
+    this.model.y = ch - (bounds.y + bounds.height) * scale
   }
 
   /** 用模型 bounding box 做 screen-space 命中测试。Tororo 的 bbox ≈ 80% 拟合身形,
@@ -85,7 +86,7 @@ export class Live2DStage {
   }
 
   dispose(): void {
-    window.removeEventListener('resize', this.onWindowResize)
+    this.resizeObserver.disconnect()
     // texture/baseTexture 保留:Cubism 运行时全局缓存了贴图,销毁会让后续 loadModel 拿不到资源
     this.app.destroy(false, { children: true, texture: false, baseTexture: false })
     this.model = null
